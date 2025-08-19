@@ -1,0 +1,75 @@
+# Site settings 配置站点
+title: 'Kyle - Explore the Future of Life'
+description: '探索，永不止步。'
+keyword: '前端开发，Web服务开发，自动化测试，互联网产品思考与总结'
+url: 'https://blog.expture.com' 
+baseurl: '/'
+permalink: /article/:categories/:title
+
+# Default settings
+defaults:
+  -
+    scope:
+      path: ''
+      type: 'posts'
+    values:
+      subtitle: ''
+      layout: 'post' # Set default post layout
+      comments: true # Default open the comments
+      cover: '/assets/img/work.jpg'
+      categories: ''
+      tags: ''
+
+# Navigation links
+nav:
+  '首页': '/'
+  '文章分类': '/categories'
+  '标签': '/tags'
+
+# Author 配置博主信息
+author: 'Kyle'
+nickname: 'K'
+bio: '一片网络自留地'
+avatar: '/assets/img/profile.jpeg'
+
+# Search
+search: true
+
+# Global comments setting
+comments: true
+
+# Share
+social-share: true
+social-share-items: ['wechat', 'weibo', 'douban', 'twitter']
+
+# theme color 主题皮肤
+theme-color: 'default'  # pink or default
+
+# Post header background patterns (when the post no cover): circuitBoard, overlappingCircles, food, glamorous, ticTacToe, seaOfClouds
+postPatterns: 'circuitBoard'
+
+# SNS settings 配置社交网站url: weibo, zhihu, twitter, instagrame, juejin, github, douban, facebook, dribble, uicn, jianshu, medium, linkedin
+sns:
+  github: '//github.com/kehr'
+  douban: '//www.douban.com/people/kehr'
+  weibo: '//weibo.com/kehr'
+
+# Tags 设置标签
+recommend-tags: true # whether or not display recommend-tags on the sidebar
+recommend-condition-size: 12 # a tag will be recommended if the size of it is more than this value
+
+# Build settings
+paginate: 6
+paginate_path: 'page/:num'
+exclude: ['node_modules', 'dev', 'package.json', 'gulpfile.js', '.gitignore', 'README.md']
+
+# Markdown
+markdown: kramdown
+highlighter: rouge
+kramdown:
+  input: GFM
+
+RSS: false
+
+# Plugins
+plugins: [jekyll-paginate, jekyll-admin]
