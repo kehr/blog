@@ -1,12 +1,14 @@
 ---
 title: 解决Tornado无法识别svg文件的问题
-subtitle: 每一个web开发框架都有一些不怎么为人知的坑，让你如鲠在喉。
-layout: post
-comments: true
-cover: "/assets/img/tornado.png"
-categories: Tornado
-tags: tornado  bug
+description: 每一个web开发框架都有一些不怎么为人知的坑，让你如鲠在喉。
 date: '2018-07-09 16:30:00'
+categories:
+- Tornado
+tags:
+- tornado
+- bug
+image:
+  path: "/assets/img/tornado.png"
 ---
 
 Tornado 使用 mimetypes 探测文件的 mime 类型。当遇到 svg 文件时则无法确定，返回 None。

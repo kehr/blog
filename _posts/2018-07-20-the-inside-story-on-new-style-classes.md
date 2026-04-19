@@ -1,10 +1,12 @@
 ---
 title: 有关Python新式类的前世今生
-layout: post
-comments: true
-cover: "/assets/img/python-history.png"
-categories: Python秘史
-tags: Python  类
+categories:
+- Python秘史
+tags:
+- Python
+- 类
+image:
+  path: "/assets/img/python-history.png"
 ---
 
 > 本文翻译自 [《The Inside Story on New-Style Classes》][1]。  

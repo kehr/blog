@@ -1,9 +1,13 @@
 ---
 title: 云产品如今在国内的发展如何？
-layout: post
-subtitle: 从2018年北京Qcon参会云产品公司看国内云产品的发展。
-cover: /assets/img/work.jpg
-tags: 产品 网易云 云服务 Qcon
+description: 从2018年北京Qcon参会云产品公司看国内云产品的发展。
+tags:
+- 产品
+- 网易云
+- 云服务
+- Qcon
+image:
+  path: "/assets/img/work.jpg"
 ---
 
 # 国内云产品概览

@@ -1,11 +1,12 @@
 ---
 title: 如何在紧张状态下保持镇静
-layout: post
-comments: true
-cover: "/assets/img/ted.jpg"
-categories: 社会人文
-tags: TED
-subtitle: 在事情没有完成之前，永远为最坏的情况做好准备。
+description: 在事情没有完成之前，永远为最坏的情况做好准备。
+categories:
+- 社会人文
+tags:
+- TED
+image:
+  path: "/assets/img/ted.jpg"
 ---
 
 <iframe src="https://embed.ted.com/talks/daniel_levitin_how_to_stay_calm_when_you_know_you_ll_be_stressed" width="720px" height="405px" frameborder="0" scrolling="no" webkitAllowFullScreen mozallowfullscreen allowFullScreen></iframe>
