@@ -50,14 +50,61 @@
     </div>
     {%- endif -%}
     <div id="post-card-cover-fallback" style="{{ _fb_style }}">
-      <div style="position:absolute; top:-80px; right:-80px; width:280px; height:280px; border-radius:50%; background:radial-gradient(circle at 30% 30%, rgba(96,165,250,0.35), rgba(96,165,250,0) 70%);"></div>
-      <div style="position:absolute; bottom:-60px; left:-60px; width:240px; height:240px; border-radius:50%; background:radial-gradient(circle at 70% 70%, rgba(52,211,153,0.28), rgba(52,211,153,0) 70%);"></div>
-      <div style="position:absolute; inset:0; display:flex; flex-direction:column; justify-content:center; align-items:center; padding:0 48px; text-align:center;">
-        <div style="font-size:44px; color:#f8fafc; font-weight:700; letter-spacing:1px;">{{ site.title | escape }}</div>
+      <svg
+        id="post-card-cover-svg"
+        viewBox="0 0 640 {{ _fb_height }}"
+        preserveAspectRatio="xMidYMid slice"
+        xmlns="http://www.w3.org/2000/svg"
+        style="position:absolute; inset:0; width:100%; height:100%; display:block;"
+      >
+        <defs>
+          <linearGradient id="pcfb-bg" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stop-color="#0b1220"/>
+            <stop offset="45%" stop-color="#1e293b"/>
+            <stop offset="100%" stop-color="#334155"/>
+          </linearGradient>
+          <radialGradient id="pcfb-glow-a" cx="0.22" cy="0.28" r="0.55">
+            <stop offset="0%" stop-color="rgba(96,165,250,0.42)"/>
+            <stop offset="100%" stop-color="rgba(96,165,250,0)"/>
+          </radialGradient>
+          <radialGradient id="pcfb-glow-b" cx="0.82" cy="0.82" r="0.5">
+            <stop offset="0%" stop-color="rgba(168,85,247,0.32)"/>
+            <stop offset="100%" stop-color="rgba(168,85,247,0)"/>
+          </radialGradient>
+          <radialGradient id="pcfb-glow-c" cx="0.6" cy="0.15" r="0.35">
+            <stop offset="0%" stop-color="rgba(52,211,153,0.22)"/>
+            <stop offset="100%" stop-color="rgba(52,211,153,0)"/>
+          </radialGradient>
+        </defs>
+        <rect width="640" height="{{ _fb_height }}" fill="url(#pcfb-bg)"/>
+        <rect width="640" height="{{ _fb_height }}" fill="url(#pcfb-glow-a)"/>
+        <rect width="640" height="{{ _fb_height }}" fill="url(#pcfb-glow-b)"/>
+        <rect width="640" height="{{ _fb_height }}" fill="url(#pcfb-glow-c)"/>
+        <g id="post-card-mesh-fills"></g>
+        <g id="post-card-mesh-lines" stroke="rgba(148,163,184,0.22)" stroke-width="0.6" fill="none" stroke-linejoin="round"></g>
+        <g id="post-card-mesh-dots"></g>
+        <text
+          x="320"
+          y="{% if site.tagline %}{{ _fb_height | divided_by: 2 | minus: 8 }}{% else %}{{ _fb_height | divided_by: 2 | plus: 14 }}{% endif %}"
+          text-anchor="middle"
+          fill="#f8fafc"
+          font-size="44"
+          font-weight="700"
+          font-family="-apple-system,BlinkMacSystemFont,'Helvetica Neue','PingFang SC','Microsoft YaHei',sans-serif"
+          letter-spacing="1"
+        >{{ site.title | escape }}</text>
         {%- if site.tagline -%}
-        <div style="margin-top:16px; font-size:20px; color:#94a3b8; letter-spacing:2px;">{{ site.tagline | escape }}</div>
+        <text
+          x="320"
+          y="{{ _fb_height | divided_by: 2 | plus: 32 }}"
+          text-anchor="middle"
+          fill="#94a3b8"
+          font-size="18"
+          font-family="-apple-system,BlinkMacSystemFont,'Helvetica Neue','PingFang SC','Microsoft YaHei',sans-serif"
+          letter-spacing="2"
+        >{{ site.tagline | escape }}</text>
         {%- endif -%}
-      </div>
+      </svg>
     </div>
 
     <div style="padding:56px 48px 32px;">
@@ -97,6 +144,7 @@
   <div class="post-card-preview-actions">
     <p id="post-card-preview-tip" class="post-card-preview-tip" role="status" aria-live="polite"></p>
     <a id="post-card-download-link" class="post-card-preview-btn" href="javascript:void(0)">存储图片</a>
+    <button id="post-card-toggle-cover" type="button" class="post-card-preview-btn ghost" hidden>使用默认封面</button>
   </div>
 </div>
 
@@ -229,6 +277,19 @@
     cursor: not-allowed;
     box-shadow: none;
   }
+  .post-card-preview-btn.ghost {
+    background: transparent;
+    color: rgba(255, 255, 255, 0.82) !important;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    box-shadow: none;
+    padding: 11px 28px;
+    font-weight: 400;
+  }
+  .post-card-preview-btn.ghost:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff !important;
+  }
+  .post-card-preview-btn.ghost[hidden] { display: none; }
 </style>
 
 <script>
@@ -242,10 +303,14 @@
     var previewInner = document.getElementById('post-card-preview-inner');
     var tipEl = document.getElementById('post-card-preview-tip');
     var downloadLink = document.getElementById('post-card-download-link');
+    var toggleBtn = document.getElementById('post-card-toggle-cover');
+    var coverWrapExists = !!document.getElementById('post-card-cover-wrap');
     if (!btn || !card || !overlay || !previewInner || !downloadLink) return;
 
     var currentBlobUrl = null;
     var currentAbort = null;
+    var coverMode = 'auto';
+    var lastAutoCoverOk = true;
 
     function revokeBlobUrl() {
       if (currentBlobUrl) {
@@ -328,36 +393,99 @@
       if (fb) fb.style.display = 'none';
     }
 
+    var SVG_NS = 'http://www.w3.org/2000/svg';
+    var FILL_PALETTE = [
+      'rgba(96,165,250,0.11)',
+      'rgba(52,211,153,0.08)',
+      'rgba(168,85,247,0.09)',
+      'rgba(250,204,21,0.05)',
+      'rgba(248,250,252,0.04)'
+    ];
+
+    function clearChildren(node) {
+      while (node && node.firstChild) node.removeChild(node.firstChild);
+    }
+
+    function regenMesh() {
+      var svg = document.getElementById('post-card-cover-svg');
+      var lines = document.getElementById('post-card-mesh-lines');
+      var fills = document.getElementById('post-card-mesh-fills');
+      var dots = document.getElementById('post-card-mesh-dots');
+      if (!svg || !lines || !fills || !dots) return;
+      clearChildren(lines);
+      clearChildren(fills);
+      clearChildren(dots);
+
+      var vb = (svg.getAttribute('viewBox') || '0 0 640 480').split(/\s+/);
+      var W = parseFloat(vb[2]) || 640;
+      var H = parseFloat(vb[3]) || 480;
+      var cols = 9;
+      var rows = Math.max(4, Math.round(H / (W / cols)));
+      var cellW = W / cols;
+      var cellH = H / rows;
+      var jitter = Math.min(cellW, cellH) * 0.45;
+
+      var points = [];
+      for (var r = 0; r <= rows; r++) {
+        for (var c = 0; c <= cols; c++) {
+          var onEdge = (r === 0 || r === rows || c === 0 || c === cols);
+          var jx = onEdge ? 0 : (Math.random() - 0.5) * 2 * jitter;
+          var jy = onEdge ? 0 : (Math.random() - 0.5) * 2 * jitter;
+          points.push({ x: c * cellW + jx, y: r * cellH + jy });
+        }
+      }
+      var stride = cols + 1;
+      function pt(r, c) { return points[r * stride + c]; }
+
+      function tri(group, a, b, c, attrs) {
+        var el = document.createElementNS(SVG_NS, 'polygon');
+        el.setAttribute(
+          'points',
+          a.x.toFixed(1) + ',' + a.y.toFixed(1) + ' ' +
+          b.x.toFixed(1) + ',' + b.y.toFixed(1) + ' ' +
+          c.x.toFixed(1) + ',' + c.y.toFixed(1)
+        );
+        if (attrs) {
+          for (var k in attrs) el.setAttribute(k, attrs[k]);
+        }
+        group.appendChild(el);
+      }
+
+      for (var rr = 0; rr < rows; rr++) {
+        for (var cc = 0; cc < cols; cc++) {
+          var tl = pt(rr, cc);
+          var tr = pt(rr, cc + 1);
+          var bl = pt(rr + 1, cc);
+          var br = pt(rr + 1, cc + 1);
+          tri(lines, tl, tr, br);
+          tri(lines, tl, br, bl);
+          if (Math.random() < 0.22) {
+            tri(fills, tl, tr, br, { fill: FILL_PALETTE[Math.floor(Math.random() * FILL_PALETTE.length)], stroke: 'none' });
+          }
+          if (Math.random() < 0.18) {
+            tri(fills, tl, br, bl, { fill: FILL_PALETTE[Math.floor(Math.random() * FILL_PALETTE.length)], stroke: 'none' });
+          }
+        }
+      }
+
+      var dotColors = ['#60a5fa', '#a78bfa', '#34d399', '#f8fafc'];
+      for (var i = 0; i < points.length; i++) {
+        if (Math.random() < 0.09) {
+          var p = points[i];
+          var dot = document.createElementNS(SVG_NS, 'circle');
+          dot.setAttribute('cx', p.x.toFixed(1));
+          dot.setAttribute('cy', p.y.toFixed(1));
+          dot.setAttribute('r', (Math.random() * 1.6 + 0.9).toFixed(1));
+          dot.setAttribute('fill', dotColors[Math.floor(Math.random() * dotColors.length)]);
+          dot.setAttribute('opacity', (Math.random() * 0.45 + 0.45).toFixed(2));
+          dots.appendChild(dot);
+        }
+      }
+    }
+    regenMesh();
+
     var inlinedCoverUrl = null;
     var coverPromise = null;
-
-    function preloadImage(src, timeoutMs) {
-      return new Promise(function (resolve) {
-        var im = new Image();
-        im.decoding = 'async';
-        var settled = false;
-        var timer = setTimeout(function () {
-          if (settled) return;
-          settled = true;
-          resolve(null);
-        }, timeoutMs);
-        function finish(result) {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timer);
-          resolve(result);
-        }
-        im.onload = function () {
-          if (typeof im.decode === 'function') {
-            im.decode().then(function () { finish(im); }, function () { finish(im); });
-          } else {
-            finish(im);
-          }
-        };
-        im.onerror = function () { finish(null); };
-        im.src = src;
-      });
-    }
 
     function blobToDataUrl(blob) {
       return new Promise(function (resolve, reject) {
@@ -366,22 +494,6 @@
         fr.onerror = function () { reject(fr.error || new Error('FileReader error')); };
         fr.readAsDataURL(blob);
       });
-    }
-
-    function canvasDataUrlFromImage(im) {
-      try {
-        var canvas = document.createElement('canvas');
-        canvas.width = im.naturalWidth;
-        canvas.height = im.naturalHeight;
-        if (!canvas.width || !canvas.height) return null;
-        var ctx = canvas.getContext('2d');
-        ctx.drawImage(im, 0, 0);
-        var dataUrl = canvas.toDataURL('image/jpeg', 0.92);
-        if (!dataUrl || dataUrl.length < 128) return null;
-        return dataUrl;
-      } catch (_) {
-        return null;
-      }
     }
 
     function inlineCover() {
@@ -396,11 +508,6 @@
       if (!src) return Promise.resolve(true);
 
       coverPromise = (async function () {
-        var warm = await preloadImage(src, 10000);
-        if (!warm) {
-          coverPromise = null;
-          return false;
-        }
         var ctrl = new AbortController();
         var timer = setTimeout(function () { ctrl.abort(); }, 8000);
         try {
@@ -417,17 +524,8 @@
           }
           return true;
         } catch (e) {
-          console.warn('[post-card] fetch path failed, trying canvas', e);
-          var canvasUrl = canvasDataUrlFromImage(warm);
-          if (canvasUrl) {
-            inlinedCoverUrl = canvasUrl;
-            img.src = canvasUrl;
-            if (typeof img.decode === 'function') {
-              try { await img.decode(); } catch (_) {}
-            }
-            return true;
-          }
           coverPromise = null;
+          console.warn('[post-card] inlineCover failed', e);
           return false;
         } finally {
           clearTimeout(timer);
@@ -454,10 +552,17 @@
       return '生成失败，请稍后重试';
     }
 
-    function buildTip(coverOk) {
+    function buildTip(mode, autoFailed) {
       var isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent || '');
       var base = isMobile ? '长按图片保存到相册' : '点击右侧按钮下载，或右键图片另存为';
-      return base + (coverOk ? '' : '（封面加载失败，已使用默认样式）');
+      if (mode === 'fallback' && autoFailed) return base + '（封面加载失败，已使用默认样式）';
+      return base;
+    }
+
+    function updateToggleBtn() {
+      if (!toggleBtn || !coverWrapExists) return;
+      toggleBtn.hidden = false;
+      toggleBtn.textContent = (coverMode === 'fallback') ? '使用原封面' : '使用默认封面';
     }
 
     function showOverlay() {
@@ -502,10 +607,22 @@
         await Promise.all([loadScript(HTI_CDN), loadScript(QR_CDN)]);
         if (aborted()) return;
         renderQR();
-        restoreCover();
-        var coverOk = await inlineCover();
-        if (aborted()) return;
-        if (!coverOk) useFallbackCover();
+
+        var autoFailed = false;
+        if (coverMode === 'fallback' || !coverWrapExists) {
+          regenMesh();
+          useFallbackCover();
+        } else {
+          restoreCover();
+          var inlineOk = await inlineCover();
+          if (aborted()) return;
+          lastAutoCoverOk = inlineOk;
+          if (!inlineOk) {
+            autoFailed = true;
+            regenMesh();
+            useFallbackCover();
+          }
+        }
 
         var htiOptions = {
           pixelRatio: 2,
@@ -520,6 +637,8 @@
         } catch (err) {
           if (aborted()) return;
           console.warn('[post-card] retry with fallback cover', err);
+          autoFailed = autoFailed || coverMode === 'auto';
+          regenMesh();
           useFallbackCover();
           blob = await window.htmlToImage.toBlob(card, htiOptions);
         }
@@ -530,7 +649,9 @@
         currentBlobUrl = URL.createObjectURL(blob);
         setImage(currentBlobUrl);
         downloadLink.download = sanitizeFilename(document.title) + '.png';
-        tipEl.textContent = buildTip(coverOk);
+        var effectiveMode = (coverMode === 'fallback' || autoFailed || !coverWrapExists) ? 'fallback' : 'auto';
+        tipEl.textContent = buildTip(effectiveMode, autoFailed);
+        updateToggleBtn();
       } catch (e) {
         if (aborted()) return;
         console.error('[post-card]', e);
@@ -548,5 +669,15 @@
     }
 
     btn.addEventListener('click', generate);
+
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', function () {
+        if (btn.dataset.busy === '1') return;
+        coverMode = (coverMode === 'fallback') ? 'auto' : 'fallback';
+        updateToggleBtn();
+        generate();
+      });
+    }
+    updateToggleBtn();
   })();
 </script>
