@@ -83,36 +83,30 @@
         <g id="post-card-mesh-fills"></g>
         <g id="post-card-mesh-lines" stroke="rgba(148,163,184,0.22)" stroke-width="0.6" fill="none" stroke-linejoin="round"></g>
         <g id="post-card-mesh-dots"></g>
-        <text
-          x="320"
-          y="{% if site.tagline %}{{ _fb_height | divided_by: 2 | minus: 8 }}{% else %}{{ _fb_height | divided_by: 2 | plus: 14 }}{% endif %}"
-          text-anchor="middle"
-          fill="#f8fafc"
-          font-size="44"
-          font-weight="700"
-          font-family="-apple-system,BlinkMacSystemFont,'Helvetica Neue','PingFang SC','Microsoft YaHei',sans-serif"
-          letter-spacing="1"
-        >{{ site.title | escape }}</text>
-        {%- if site.tagline -%}
-        <text
-          x="320"
-          y="{{ _fb_height | divided_by: 2 | plus: 32 }}"
-          text-anchor="middle"
-          fill="#94a3b8"
-          font-size="18"
-          font-family="-apple-system,BlinkMacSystemFont,'Helvetica Neue','PingFang SC','Microsoft YaHei',sans-serif"
-          letter-spacing="2"
-        >{{ site.tagline | escape }}</text>
-        {%- endif -%}
       </svg>
+      <div
+        id="post-card-fallback-site"
+        style="position:absolute; inset:0; display:flex; flex-direction:column; justify-content:center; align-items:center; padding:0 48px; text-align:center;"
+      >
+        <div style="font-size:44px; color:#f8fafc; font-weight:700; letter-spacing:1px;">{{ site.title | escape }}</div>
+        {%- if site.tagline -%}
+        <div style="margin-top:16px; font-size:20px; color:#94a3b8; letter-spacing:2px;">{{ site.tagline | escape }}</div>
+        {%- endif -%}
+      </div>
+      <div
+        id="post-card-fallback-post"
+        style="display:none; position:absolute; inset:0; flex-direction:column; justify-content:center; align-items:center; padding:0 56px; text-align:center;"
+      >
+        <div style="font-size:38px; line-height:1.35; color:#f8fafc; font-weight:700; letter-spacing:0.3px;">{{ page.title | escape }}</div>
+      </div>
     </div>
 
-    <div style="padding:56px 48px 32px;">
-      <div style="font-size:40px; line-height:1.4; margin:0 0 28px; color:#1f2328; font-weight:700;">
+    <div id="post-card-body" style="padding:56px 48px 32px;">
+      <div id="post-card-body-title" style="font-size:40px; line-height:1.4; margin:0 0 28px; color:#1f2328; font-weight:700;">
         {{ page.title | escape }}
       </div>
       {%- if _desc and _desc != '' -%}
-      <div style="font-size:22px; line-height:1.75; color:#57606a; margin:0;">
+      <div id="post-card-body-desc" style="font-size:22px; line-height:1.75; color:#57606a; margin:0;">
         {{ _desc | escape }}
       </div>
       {%- endif -%}
@@ -393,6 +387,25 @@
       if (fb) fb.style.display = 'none';
     }
 
+    function setCoverTextMode(mode) {
+      var siteOv = document.getElementById('post-card-fallback-site');
+      var postOv = document.getElementById('post-card-fallback-post');
+      var body = document.getElementById('post-card-body');
+      var bodyTitle = document.getElementById('post-card-body-title');
+      var bodyDesc = document.getElementById('post-card-body-desc');
+      if (mode === 'fallback') {
+        if (siteOv) siteOv.style.display = 'none';
+        if (postOv) postOv.style.display = 'flex';
+        if (bodyTitle) bodyTitle.style.display = 'none';
+        if (body) body.style.display = bodyDesc ? '' : 'none';
+      } else {
+        if (siteOv) siteOv.style.display = 'flex';
+        if (postOv) postOv.style.display = 'none';
+        if (bodyTitle) bodyTitle.style.display = '';
+        if (body) body.style.display = '';
+      }
+    }
+
     var SVG_NS = 'http://www.w3.org/2000/svg';
     var FILL_PALETTE = [
       'rgba(96,165,250,0.11)',
@@ -609,11 +622,15 @@
         renderQR();
 
         var autoFailed = false;
+        var effectiveMode;
         if (coverMode === 'fallback' || !coverWrapExists) {
           regenMesh();
           useFallbackCover();
+          setCoverTextMode('fallback');
+          effectiveMode = 'fallback';
         } else {
           restoreCover();
+          setCoverTextMode('auto');
           var inlineOk = await inlineCover();
           if (aborted()) return;
           lastAutoCoverOk = inlineOk;
@@ -621,6 +638,10 @@
             autoFailed = true;
             regenMesh();
             useFallbackCover();
+            setCoverTextMode('fallback');
+            effectiveMode = 'fallback';
+          } else {
+            effectiveMode = 'auto';
           }
         }
 
@@ -640,6 +661,8 @@
           autoFailed = autoFailed || coverMode === 'auto';
           regenMesh();
           useFallbackCover();
+          setCoverTextMode('fallback');
+          effectiveMode = 'fallback';
           blob = await window.htmlToImage.toBlob(card, htiOptions);
         }
         if (aborted()) return;
@@ -649,7 +672,6 @@
         currentBlobUrl = URL.createObjectURL(blob);
         setImage(currentBlobUrl);
         downloadLink.download = sanitizeFilename(document.title) + '.png';
-        var effectiveMode = (coverMode === 'fallback' || autoFailed || !coverWrapExists) ? 'fallback' : 'auto';
         tipEl.textContent = buildTip(effectiveMode, autoFailed);
         updateToggleBtn();
       } catch (e) {
