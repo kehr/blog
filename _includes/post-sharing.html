@@ -30,6 +30,18 @@
     ></div>
 
     <button
+      id="download-card-btn"
+      type="button"
+      aria-label="Download share card"
+      class="btn small"
+      data-bs-toggle="tooltip"
+      data-bs-placement="top"
+      title="下载分享卡片"
+    >
+      <i class="fa-fw fas fa-image pe-none fs-6"></i>
+    </button>
+
+    <button
       id="copy-link"
       aria-label="Copy link"
       class="btn small"
@@ -42,6 +54,8 @@
     </button>
   </span>
 </div>
+
+{% include post-card.html %}
 
 <script
   defer
