@@ -1,0 +1,211 @@
+---
+---
+
+/* prettier-ignore */
+@use 'main
+{%- if jekyll.environment == 'production' -%}
+  .bundle
+{%- endif -%}
+';
+
+/* ------------------------------------------------------------------
+   Custom typography overrides for Chinese-first publishing.
+   Order: font stack -> sizing/rhythm -> headings -> meta -> TOC -> misc
+   ------------------------------------------------------------------ */
+
+/* Chinese-first system font stack (kept short to favor host-installed faces) */
+$cn-font-stack:
+  -apple-system,
+  BlinkMacSystemFont,
+  'PingFang SC',
+  'HarmonyOS Sans SC',
+  'Source Han Sans SC',
+  'Noto Sans CJK SC',
+  'Microsoft YaHei',
+  'Source Sans Pro',
+  sans-serif;
+
+body,
+main,
+.post-content,
+#sidebar,
+#topbar,
+#panel-wrapper {
+  font-family: $cn-font-stack;
+}
+
+/* Body rhythm: wider line, taller leading, generous paragraph gap */
+#main-wrapper > .container {
+  max-width: 1180px;
+}
+
+main {
+  font-size: 1.0625rem;
+  line-height: 1.75;
+  text-spacing-trim: trim-start;
+  hanging-punctuation: first allow-end last;
+}
+
+main p {
+  margin-block: 1.1em;
+}
+
+/* Section rhythm: clearer hierarchy between H2 chapters */
+main h2 {
+  margin-top: 2.5rem;
+  margin-bottom: 0.9rem;
+}
+
+/* Heading scale: enlarge H1, tighten letter-spacing for Chinese display */
+header h1[data-toc-skip] {
+  font-size: 2.1rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.35;
+}
+
+/* Description: caption-style summary, slimmer than body, with left rule */
+header .post-desc {
+  font-size: 1rem;
+  font-weight: 400;
+  line-height: 1.65;
+  opacity: 0.7;
+  margin-bottom: 1.25rem !important;
+  background-color: var(--sidebar-bg);
+  padding: 0.75rem 1rem;
+  border-radius: 0.25rem;
+}
+
+/* Post meta line: smaller and softer; main info left, read-time right */
+header .post-meta {
+  font-size: 0.85rem;
+  font-weight: 400;
+  opacity: 0.65;
+  margin-bottom: 1.1rem;
+  column-gap: 0.5rem;
+}
+
+/* Hover reveal: last-modified date appears inline right after the published date. */
+header .post-meta-posted.has-lastmod {
+  cursor: help;
+
+  time {
+    border-bottom: 1px dotted currentColor;
+  }
+
+  .lastmod-tip {
+    display: none;
+    margin-left: 0.5rem;
+    white-space: nowrap;
+  }
+
+  &:hover .lastmod-tip,
+  &:focus-within .lastmod-tip {
+    display: inline;
+  }
+}
+
+/* TOC: two-line clamp instead of single-line ellipsis */
+#toc-wrapper ul .toc-link,
+#toc-popup-content .toc-link {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: normal;
+  text-overflow: clip;
+  line-height: 1.45;
+  padding-top: 0.35rem;
+  padding-bottom: 0.35rem;
+}
+
+/* Heading anchor: hide on touch-only devices (chirpy only hides on hover devices) */
+@media (hover: none) {
+  .anchor {
+    display: none !important;
+  }
+}
+
+/* Chinese-English auto spacing where the browser supports it (Chrome 119+, Safari 18+) */
+main {
+  text-autospace: ideograph-alpha ideograph-numeric;
+}
+
+/* Tabular numbers for dates and read-time so digits align */
+.post-meta time,
+#read-time {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Mermaid: inherit Chinese font stack so CJK glyphs match body */
+.mermaid,
+.mermaid foreignObject div,
+.mermaid .nodeLabel,
+.mermaid .edgeLabel,
+.mermaid .cluster-label,
+.mermaid text {
+  font-family: $cn-font-stack !important;
+}
+
+/* Mermaid: neutral mono palette using chirpy theme variables (light + dark auto) */
+.mermaid {
+  /* Node fill + border (darker stroke for clearer outline) */
+  .node rect,
+  .node polygon,
+  .node circle,
+  .node ellipse,
+  .node path {
+    fill: var(--card-bg) !important;
+    stroke: var(--mask-bg) !important;
+    stroke-width: 1.2px !important;
+  }
+
+  /* Subtle rounded corners on rectangular nodes */
+  .node rect {
+    rx: 4px !important;
+    ry: 4px !important;
+  }
+
+  /* Subgraph cluster: solid background + visible border for nested layers */
+  .cluster rect {
+    fill: var(--sidebar-bg) !important;
+    stroke: var(--mask-bg) !important;
+    stroke-width: 1.2px !important;
+    stroke-dasharray: 0 !important;
+    rx: 2px !important;
+    ry: 2px !important;
+  }
+
+  /* Edges (lines) */
+  .edgePath path,
+  .flowchart-link,
+  path.path {
+    stroke: var(--text-muted-color) !important;
+    stroke-width: 1.2px !important;
+    fill: none !important;
+  }
+
+  /* Arrowheads */
+  .arrowheadPath,
+  marker path {
+    fill: var(--text-muted-color) !important;
+    stroke: var(--text-muted-color) !important;
+  }
+
+  /* Labels */
+  .nodeLabel,
+  .edgeLabel,
+  .cluster-label,
+  text {
+    color: var(--text-color) !important;
+    fill: var(--text-color) !important;
+  }
+
+  /* Edge label background — keep readable when crossing lines */
+  .edgeLabel rect,
+  .edgeLabel .label {
+    background-color: var(--main-bg) !important;
+    fill: var(--main-bg) !important;
+  }
+}
