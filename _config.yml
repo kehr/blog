@@ -67,6 +67,8 @@ analytics:
     id: # fill in your Cloudflare Web Analytics token
   fathom:
     id: # fill in your Fathom Site ID
+  baidu:
+    id: c15b93b3371bbb7acffd13d5508d74f7
 
 # Page views settings
 pageviews:
@@ -203,13 +205,9 @@ compress_html:
 exclude:
   - "*.gem"
   - "*.gemspec"
-  - docs
-  - tools
   - README.md
   - LICENSE
-  - purgecss.js
-  - "*.config.js"
-  - "package*.json"
+  - Makefile
 
 jekyll-archives:
   enabled: [categories, tags]
