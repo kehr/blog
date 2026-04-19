@@ -1,7 +1,7 @@
 ---
 title: 弹出框点击其它位置消失
 categories:
-- 码农笔记
+- Older Posts
 tags:
 - JavaScript
 image:

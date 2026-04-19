@@ -1,7 +1,7 @@
 ---
 title: 有关Python新式类的前世今生
 categories:
-- Python秘史
+- Older Posts
 tags:
 - Python
 - 类

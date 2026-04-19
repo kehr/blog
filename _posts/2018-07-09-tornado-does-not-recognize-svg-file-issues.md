@@ -3,7 +3,7 @@ title: 解决Tornado无法识别svg文件的问题
 description: 每一个web开发框架都有一些不怎么为人知的坑，让你如鲠在喉。
 date: '2018-07-09 16:30:00'
 categories:
-- Tornado
+- Older Posts
 tags:
 - tornado
 - bug

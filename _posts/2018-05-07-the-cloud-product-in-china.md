@@ -8,6 +8,8 @@ tags:
 - Qcon
 image:
   path: "/assets/img/work.jpg"
+categories:
+- Older Posts
 ---
 
 # 国内云产品概览

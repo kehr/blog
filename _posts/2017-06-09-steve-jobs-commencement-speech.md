@@ -3,7 +3,7 @@ title: Steve Jobs' commencement speech
 description: Stay Hungry, Stay Foolish.
 date: 2017-06-09
 categories:
-- 社会人文
+- Older Posts
 tags:
 - 总结
 image:

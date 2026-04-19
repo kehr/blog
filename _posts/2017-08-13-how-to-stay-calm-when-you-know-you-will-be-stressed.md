@@ -2,7 +2,7 @@
 title: 如何在紧张状态下保持镇静
 description: 在事情没有完成之前，永远为最坏的情况做好准备。
 categories:
-- 社会人文
+- Older Posts
 tags:
 - TED
 image:

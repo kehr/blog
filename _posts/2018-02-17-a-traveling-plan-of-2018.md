@@ -5,6 +5,8 @@ tags:
 - 规划
 image:
   path: "/assets/img/road.jpg"
+categories:
+- Older Posts
 ---
 
 北京是个好地方，H1要做一次深度游。H2的规划是国内选地方。19年挑国内和国外。
