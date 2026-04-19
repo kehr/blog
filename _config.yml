@@ -214,6 +214,7 @@ exclude:
   - README.md
   - LICENSE
   - Makefile
+  - scripts
 
 jekyll-archives:
   enabled: [categories, tags]
