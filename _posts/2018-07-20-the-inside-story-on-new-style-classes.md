@@ -23,7 +23,7 @@ image:
 
 下面几部分，将分别介绍这些概念。
 
-# 1. Low-level constructors and `__new__()`
+## 1. Low-level constructors and `__new__()`
 
 传统意义上讲，类中定义的 `__init__` 方法决定了类在**创建之后**如何初始化。但在有些场景里，类的作者希望自定义实例的**创建过程**。例如，假设一个对象从持久化数据库（persistant database）中恢复，旧式类（old-style）不会提供定制创建对象的方法（hook），不过有一些模块却允许通过非标准的方式创建类（如，`new`模块）。
 
