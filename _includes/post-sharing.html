@@ -1,56 +1,33 @@
-<!-- Post sharing snippet (local override: adds WeChat branch) -->
+<!-- Post sharing: social-share.js handles Twitter/WeChat/Weibo; keep Chirpy's copy-link. -->
+
+<link
+  rel="stylesheet"
+  href="https://cdn.jsdelivr.net/npm/social-share.js@1.0.16/dist/css/share.min.css"
+/>
+
+<style>
+  .share-icons .social-share { display: inline-flex; align-items: center; }
+  .share-icons .social-share .social-share-icon {
+    width: 24px;
+    height: 24px;
+    line-height: 24px;
+    font-size: 12px;
+    margin: 0 4px;
+    border-width: 1px;
+  }
+</style>
 
 <div class="share-wrapper d-flex align-items-center">
   <span class="share-label text-muted">{{ site.data.locales[include.lang].post.share }}</span>
-  <span class="share-icons">
-    {% capture title %}{{ page.title }} - {{ site.title }}{% endcapture %}
-    {% assign title = title | uri_escape %}
-    {% assign url = page.url | absolute_url | url_encode %}
-
-    {% assign has_wechat = false %}
-    {% for share in site.data.share.platforms -%}
-      {%- capture tooltip -%}
-        data-bs-toggle="tooltip" data-bs-placement="top" title="{{ share.type }}" aria-label="{{ share.type }}"
-      {%- endcapture -%}
-
-      {% if share.type == 'WeChat' %}
-        {% assign has_wechat = true %}
-        <button
-          type="button"
-          class="btn share-wechat-btn"
-          title="{{ share.type }}"
-          aria-label="{{ share.type }}"
-        >
-          <i class="fa-fw {{ share.icon }}"></i>
-        </button>
-
-        {% continue %}
-      {% endif %}
-
-      {% if share.type == 'Mastodon' %}
-        <script defer type="module" src="https://cdn.jsdelivr.net/npm/@justinribeiro/share-to-mastodon/+esm"></script>
-        <button class="btn text-start" {{ tooltip }}>
-          <share-to-mastodon
-            class="share-mastodon"
-            message="{{ title }}"
-            url="{{ url }}"
-            {%- if share.instances -%}
-              customInstanceList="{{ share.instances | jsonify | xml_escape }}"
-            {%- endif %}
-          >
-            <i class="fa-fw {{ share.icon }}"></i>
-          </share-to-mastodon>
-        </button>
-
-        {% continue %}
-      {% endif %}
-
-      {% assign link = share.link | replace: 'TITLE', title | replace: 'URL', url %}
-
-      <a href="{{ link }}" target="_blank" rel="noopener" {{ tooltip }}>
-        <i class="fa-fw {{ share.icon }}"></i>
-      </a>
-    {% endfor %}
+  <span class="share-icons d-flex align-items-center">
+    <div
+      class="social-share"
+      data-sites="twitter,wechat,weibo"
+      data-url="{{ page.url | absolute_url }}"
+      data-title="{{ page.title | escape }} - {{ site.title | escape }}"
+      data-wechat-qrcode-title="分享到微信"
+      data-wechat-qrcode-helper="用微信扫一扫"
+    ></div>
 
     <button
       id="copy-link"
@@ -66,6 +43,7 @@
   </span>
 </div>
 
-{% if has_wechat %}
-  {% include wechat-share-modal.html %}
-{% endif %}
+<script
+  defer
+  src="https://cdn.jsdelivr.net/npm/social-share.js@1.0.16/dist/js/social-share.min.js"
+></script>
