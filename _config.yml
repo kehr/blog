@@ -74,6 +74,12 @@ analytics:
 pageviews:
   provider: # now only supports 'goatcounter'
 
+# Post detail page right panel
+# true  -> only TOC on post pages (hide Recently Updated + Trending Tags)
+# false -> show Recently Updated + Trending Tags alongside TOC
+# Override per post via front matter: `toc_only: false`
+post_panel_toc_only: true
+
 # Prefer color scheme setting.
 #
 # Note: Keep empty will follow the system prefer color by default,

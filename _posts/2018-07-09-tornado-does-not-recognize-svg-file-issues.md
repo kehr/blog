@@ -5,8 +5,7 @@ date: '2018-07-09 16:30:00'
 categories:
 - Older Posts
 tags:
-- tornado
-- bug
+- python
 image:
   path: "/assets/img/tornado.png"
 ---

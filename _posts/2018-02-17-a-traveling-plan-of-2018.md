@@ -2,7 +2,8 @@
 title: 18旅行规划
 description: 风景就在身边，要善于发现。
 tags:
-- 规划
+- life
+- travel
 image:
   path: "/assets/img/road.jpg"
 categories:

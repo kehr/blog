@@ -3,7 +3,7 @@ title: 弹出框点击其它位置消失
 categories:
 - Older Posts
 tags:
-- JavaScript
+- javascript
 image:
   path: "/assets/img/work.jpg"
 ---

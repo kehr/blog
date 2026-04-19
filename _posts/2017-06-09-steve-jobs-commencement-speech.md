@@ -5,7 +5,7 @@ date: 2017-06-09
 categories:
 - Older Posts
 tags:
-- 总结
+- life
 image:
   path: "/assets/img/travel.jpg"
 ---

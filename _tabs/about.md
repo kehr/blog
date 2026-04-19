@@ -2,6 +2,7 @@
 # the default layout is 'page'
 icon: fas fa-info-circle
 order: 3
+comments: true
 ---
 
 一片网络自留地。

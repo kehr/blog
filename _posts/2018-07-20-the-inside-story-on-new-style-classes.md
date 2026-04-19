@@ -3,8 +3,7 @@ title: 有关Python新式类的前世今生
 categories:
 - Older Posts
 tags:
-- Python
-- 类
+- python
 image:
   path: "/assets/img/python-history.png"
 ---
