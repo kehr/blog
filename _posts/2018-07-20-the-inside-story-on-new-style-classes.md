@@ -36,4 +36,4 @@ image:
 
 未完待续...
 
-[1]: http://python-history.blogspot.com/2010/06/inside-story-on-new-style-classes.html
+[1]: https://python-history.blogspot.com/2010/06/inside-story-on-new-style-classes.html

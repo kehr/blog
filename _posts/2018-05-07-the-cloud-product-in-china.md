@@ -72,7 +72,7 @@ categories:
 
 
 [1]: https://mp.weixin.qq.com/s?src=3&timestamp=1525706439&ver=1&signature=plxFcNT4dK2Ge*jf97Yw6o4ec7dOgIQoVraZu4o8J1NqGtRWtXbbTlrbVgvwGKvgIeOVJi2p8XmIxgdzb2ajYihtnkuv22deJIIDi5dBcV4ipjiyAeCfyD9RJEIgR0i*Og3pZ0o88kZd9BcFVNJjOQ==
-[tingyun]: http://www.tingyun.com
+[tingyun]: https://www.tingyun.com
 [qincloud]: https://www.qingcloud.com
 [qiniu]: https://www.qiniu.com
 [youyun]: https://www.uyun.cn

@@ -8,4 +8,4 @@ image:
   path: "/assets/img/work.jpg"
 ---
 
-<script async  src="//jsfiddle.net/Kehr/Lgrvp35t/2/embed/"></script>
+<script async  src="https://jsfiddle.net/Kehr/Lgrvp35t/2/embed/"></script>
