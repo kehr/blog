@@ -30,17 +30,25 @@
     "
   >
     {%- if _cover -%}
-    <div style="width:100%; height:480px; overflow:hidden; background:#f4f4f4;">
+      {%- assign _fb_display = 'none' -%}
+      {%- assign _fb_height = 480 -%}
+    {%- else -%}
+      {%- assign _fb_display = 'block' -%}
+      {%- assign _fb_height = 360 -%}
+    {%- endif -%}
+    {%- capture _fb_style -%}display:{{ _fb_display }}; position:relative; width:100%; height:{{ _fb_height }}px; background:linear-gradient(135deg, #0f172a 0%, #1e293b 45%, #334155 100%); overflow:hidden;{%- endcapture -%}
+    {%- if _cover -%}
+    <div id="post-card-cover-wrap" style="width:100%; height:480px; overflow:hidden; background:#f4f4f4;">
       <img
         id="post-card-cover"
         src="{{ _cover | relative_url }}"
         alt=""
-        crossorigin="anonymous"
+        decoding="async"
         style="width:100%; height:100%; object-fit:cover; display:block;"
       />
     </div>
-    {%- else -%}
-    <div style="position:relative; width:100%; height:360px; background:linear-gradient(135deg, #0f172a 0%, #1e293b 45%, #334155 100%); overflow:hidden;">
+    {%- endif -%}
+    <div id="post-card-cover-fallback" style="{{ _fb_style }}">
       <div style="position:absolute; top:-80px; right:-80px; width:280px; height:280px; border-radius:50%; background:radial-gradient(circle at 30% 30%, rgba(96,165,250,0.35), rgba(96,165,250,0) 70%);"></div>
       <div style="position:absolute; bottom:-60px; left:-60px; width:240px; height:240px; border-radius:50%; background:radial-gradient(circle at 70% 70%, rgba(52,211,153,0.28), rgba(52,211,153,0) 70%);"></div>
       <div style="position:absolute; inset:0; display:flex; flex-direction:column; justify-content:center; align-items:center; padding:0 48px; text-align:center;">
@@ -50,7 +58,6 @@
         {%- endif -%}
       </div>
     </div>
-    {%- endif -%}
 
     <div style="padding:56px 48px 32px;">
       <div style="font-size:40px; line-height:1.4; margin:0 0 28px; color:#1f2328; font-weight:700;">
@@ -87,7 +94,7 @@
   </button>
   <div id="post-card-preview-inner" class="post-card-preview-inner"></div>
   <div class="post-card-preview-actions">
-    <p id="post-card-preview-tip" class="post-card-preview-tip"></p>
+    <p id="post-card-preview-tip" class="post-card-preview-tip" role="status" aria-live="polite"></p>
     <a id="post-card-download-link" class="post-card-preview-btn" href="javascript:void(0)">存储图片</a>
   </div>
 </div>
@@ -236,6 +243,16 @@
     var downloadLink = document.getElementById('post-card-download-link');
     if (!btn || !card || !overlay || !previewInner || !downloadLink) return;
 
+    var currentBlobUrl = null;
+    var currentAbort = null;
+
+    function revokeBlobUrl() {
+      if (currentBlobUrl) {
+        URL.revokeObjectURL(currentBlobUrl);
+        currentBlobUrl = null;
+      }
+    }
+
     function setLoading() {
       previewInner.replaceChildren();
       var wrap = document.createElement('div');
@@ -252,16 +269,16 @@
       downloadLink.removeAttribute('href');
     }
 
-    function setImage(dataUrl) {
+    function setImage(objUrl) {
       previewInner.replaceChildren();
       var img = document.createElement('img');
       img.id = 'post-card-preview-img';
       img.alt = 'share card preview';
-      img.src = dataUrl;
+      img.src = objUrl;
       previewInner.appendChild(img);
       downloadLink.classList.remove('is-disabled');
       downloadLink.removeAttribute('aria-disabled');
-      downloadLink.href = dataUrl;
+      downloadLink.href = objUrl;
     }
 
     function setError(msg) {
@@ -295,8 +312,83 @@
       });
     }
 
+    function waitForCover() {
+      var img = document.getElementById('post-card-cover');
+      if (!img) return Promise.resolve(true);
+      if (img.complete) return Promise.resolve(img.naturalWidth > 0);
+      return new Promise(function (resolve) {
+        var done = false;
+        function finish(ok) {
+          if (done) return;
+          done = true;
+          resolve(ok);
+        }
+        img.addEventListener('load', function () { finish(img.naturalWidth > 0); }, { once: true });
+        img.addEventListener('error', function () { finish(false); }, { once: true });
+        setTimeout(function () { finish(img.complete && img.naturalWidth > 0); }, 8000);
+      });
+    }
+
+    function useFallbackCover() {
+      var wrap = document.getElementById('post-card-cover-wrap');
+      var fb = document.getElementById('post-card-cover-fallback');
+      if (wrap) wrap.style.display = 'none';
+      if (fb) fb.style.display = 'block';
+    }
+
+    function restoreCover() {
+      var wrap = document.getElementById('post-card-cover-wrap');
+      var fb = document.getElementById('post-card-cover-fallback');
+      if (!wrap) return;
+      wrap.style.display = '';
+      if (fb) fb.style.display = 'none';
+    }
+
+    var coverPrefetch = null;
+    function prefetchCover() {
+      if (coverPrefetch) return coverPrefetch;
+      var img = document.getElementById('post-card-cover');
+      if (!img || !img.src) return Promise.resolve();
+      if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+      coverPrefetch = new Promise(function (resolve) {
+        var warm = new Image();
+        var timer = setTimeout(function () {
+          coverPrefetch = null;
+          resolve();
+        }, 6000);
+        warm.onload = function () { clearTimeout(timer); resolve(); };
+        warm.onerror = function () {
+          clearTimeout(timer);
+          coverPrefetch = null;
+          resolve();
+        };
+        warm.src = img.src;
+      });
+      return coverPrefetch;
+    }
+
+    btn.addEventListener('mouseenter', prefetchCover);
+    btn.addEventListener('touchstart', prefetchCover, { passive: true });
+    window.__postCardPrefetch = prefetchCover;
+
     function sanitizeFilename(name) {
       return (name || 'share-card').replace(/[\\/:*?"<>|]+/g, '').slice(0, 80);
+    }
+
+    function friendlyError(e) {
+      var name = e && e.name ? e.name : '';
+      var msg = e && e.message ? e.message : String(e || '');
+      if (name === 'AbortError' || /abort/i.test(msg)) return '';
+      if (/NetworkError|Failed to fetch|network/i.test(msg)) return '网络请求失败，请检查网络后重试';
+      if (/timeout/i.test(msg)) return '生成超时，请重试';
+      if (/taint|cross-?origin|SecurityError/i.test(msg)) return '图片来源不允许跨域绘制';
+      return '生成失败，请稍后重试';
+    }
+
+    function buildTip(coverOk) {
+      var isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent || '');
+      var base = isMobile ? '长按图片保存到相册' : '点击右侧按钮下载，或右键图片另存为';
+      return base + (coverOk ? '' : '（封面加载失败，已使用默认样式）');
     }
 
     function showOverlay() {
@@ -307,6 +399,10 @@
     function hideOverlay() {
       overlay.hidden = true;
       document.removeEventListener('keydown', onKeydown);
+      if (currentAbort) {
+        currentAbort.abort();
+        currentAbort = null;
+      }
     }
 
     function onKeydown(e) {
@@ -327,28 +423,61 @@
       setLoading();
       tipEl.textContent = '正在生成卡片，请稍候...';
       showOverlay();
+
+      if (currentAbort) currentAbort.abort();
+      currentAbort = new AbortController();
+      var sig = currentAbort.signal;
+      var aborted = function () { return sig.aborted; };
+
       try {
         await Promise.all([loadScript(HTI_CDN), loadScript(QR_CDN)]);
+        if (aborted()) return;
         renderQR();
-        var dataUrl = await window.htmlToImage.toPng(card, {
+        await prefetchCover();
+        if (aborted()) return;
+        restoreCover();
+        var coverOk = await waitForCover();
+        if (aborted()) return;
+        if (!coverOk) useFallbackCover();
+
+        var htiOptions = {
           pixelRatio: 2,
-          cacheBust: true,
+          cacheBust: false,
           backgroundColor: '#ffffff',
-          skipFonts: true
-        });
-        setImage(dataUrl);
+          skipFonts: true,
+          fetchRequestInit: { cache: 'force-cache', signal: sig }
+        };
+
+        var blob;
+        try {
+          blob = await window.htmlToImage.toBlob(card, htiOptions);
+        } catch (err) {
+          if (aborted()) return;
+          console.warn('[post-card] retry with fallback cover', err);
+          useFallbackCover();
+          blob = await window.htmlToImage.toBlob(card, htiOptions);
+        }
+        if (aborted()) return;
+        if (!blob) throw new Error('toBlob returned null');
+
+        revokeBlobUrl();
+        currentBlobUrl = URL.createObjectURL(blob);
+        setImage(currentBlobUrl);
         downloadLink.download = sanitizeFilename(document.title) + '.png';
-        var isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent || '');
-        tipEl.textContent = isMobile
-          ? '长按图片保存到相册'
-          : '点击右侧按钮下载，或右键图片另存为';
+        tipEl.textContent = buildTip(coverOk);
       } catch (e) {
+        if (aborted()) return;
         console.error('[post-card]', e);
-        setError(e && e.message ? e.message : String(e));
+        var friendly = friendlyError(e);
+        if (friendly) setError(friendly);
         tipEl.textContent = '';
       } finally {
         btn.dataset.busy = '0';
-        if (origTitle) btn.setAttribute('title', origTitle);
+        if (origTitle != null) {
+          btn.setAttribute('title', origTitle);
+        } else {
+          btn.removeAttribute('title');
+        }
       }
     }
 
