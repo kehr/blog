@@ -41,7 +41,7 @@
     <div id="post-card-cover-wrap" style="width:100%; height:480px; overflow:hidden; background:#f4f4f4;">
       <img
         id="post-card-cover"
-        src="{{ _cover | relative_url }}"
+        data-src="{{ _cover | relative_url }}"
         alt=""
         decoding="async"
         style="width:100%; height:100%; object-fit:cover; display:block;"
@@ -312,23 +312,6 @@
       });
     }
 
-    function waitForCover() {
-      var img = document.getElementById('post-card-cover');
-      if (!img) return Promise.resolve(true);
-      if (img.complete) return Promise.resolve(img.naturalWidth > 0);
-      return new Promise(function (resolve) {
-        var done = false;
-        function finish(ok) {
-          if (done) return;
-          done = true;
-          resolve(ok);
-        }
-        img.addEventListener('load', function () { finish(img.naturalWidth > 0); }, { once: true });
-        img.addEventListener('error', function () { finish(false); }, { once: true });
-        setTimeout(function () { finish(img.complete && img.naturalWidth > 0); }, 8000);
-      });
-    }
-
     function useFallbackCover() {
       var wrap = document.getElementById('post-card-cover-wrap');
       var fb = document.getElementById('post-card-cover-fallback');
@@ -344,32 +327,53 @@
       if (fb) fb.style.display = 'none';
     }
 
-    var coverPrefetch = null;
-    function prefetchCover() {
-      if (coverPrefetch) return coverPrefetch;
+    var inlinedCoverUrl = null;
+    var coverPromise = null;
+
+    function inlineCover() {
       var img = document.getElementById('post-card-cover');
-      if (!img || !img.src) return Promise.resolve();
-      if (img.complete && img.naturalWidth > 0) return Promise.resolve();
-      coverPrefetch = new Promise(function (resolve) {
-        var warm = new Image();
-        var timer = setTimeout(function () {
-          coverPrefetch = null;
-          resolve();
-        }, 6000);
-        warm.onload = function () { clearTimeout(timer); resolve(); };
-        warm.onerror = function () {
+      if (!img) return Promise.resolve(true);
+      if (inlinedCoverUrl) {
+        if (img.getAttribute('src') !== inlinedCoverUrl) img.src = inlinedCoverUrl;
+        return Promise.resolve(true);
+      }
+      if (coverPromise) return coverPromise;
+      var src = img.getAttribute('data-src');
+      if (!src) return Promise.resolve(true);
+
+      coverPromise = (async function () {
+        var ctrl = new AbortController();
+        var timer = setTimeout(function () { ctrl.abort(); }, 10000);
+        try {
+          var res = await fetch(src, { cache: 'force-cache', signal: ctrl.signal });
+          if (!res.ok) throw new Error('fetch status ' + res.status);
+          var blob = await res.blob();
+          var dataUrl = await new Promise(function (resolve, reject) {
+            var fr = new FileReader();
+            fr.onload = function () { resolve(fr.result); };
+            fr.onerror = function () { reject(fr.error || new Error('FileReader error')); };
+            fr.readAsDataURL(blob);
+          });
+          inlinedCoverUrl = dataUrl;
+          img.src = dataUrl;
+          if (typeof img.decode === 'function') {
+            try { await img.decode(); } catch (_) {}
+          }
+          return true;
+        } catch (e) {
+          coverPromise = null;
+          console.warn('[post-card] inlineCover failed', e);
+          return false;
+        } finally {
           clearTimeout(timer);
-          coverPrefetch = null;
-          resolve();
-        };
-        warm.src = img.src;
-      });
-      return coverPrefetch;
+        }
+      })();
+      return coverPromise;
     }
 
-    btn.addEventListener('mouseenter', prefetchCover);
-    btn.addEventListener('touchstart', prefetchCover, { passive: true });
-    window.__postCardPrefetch = prefetchCover;
+    btn.addEventListener('mouseenter', inlineCover);
+    btn.addEventListener('touchstart', inlineCover, { passive: true });
+    window.__postCardPrefetch = inlineCover;
 
     function sanitizeFilename(name) {
       return (name || 'share-card').replace(/[\\/:*?"<>|]+/g, '').slice(0, 80);
@@ -433,10 +437,8 @@
         await Promise.all([loadScript(HTI_CDN), loadScript(QR_CDN)]);
         if (aborted()) return;
         renderQR();
-        await prefetchCover();
-        if (aborted()) return;
         restoreCover();
-        var coverOk = await waitForCover();
+        var coverOk = await inlineCover();
         if (aborted()) return;
         if (!coverOk) useFallbackCover();
 
@@ -444,8 +446,7 @@
           pixelRatio: 2,
           cacheBust: false,
           backgroundColor: '#ffffff',
-          skipFonts: true,
-          fetchRequestInit: { cache: 'force-cache', signal: sig }
+          skipFonts: true
         };
 
         var blob;
