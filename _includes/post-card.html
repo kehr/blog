@@ -53,24 +53,28 @@
     {%- endif -%}
 
     <div style="padding:56px 48px 32px;">
-      <h2 style="font-size:40px; line-height:1.4; margin:0 0 28px; color:#1f2328; font-weight:700;">
+      <div style="font-size:40px; line-height:1.4; margin:0 0 28px; color:#1f2328; font-weight:700;">
         {{ page.title | escape }}
-      </h2>
+      </div>
       {%- if _desc and _desc != '' -%}
-      <p style="font-size:22px; line-height:1.75; color:#57606a; margin:0;">
+      <div style="font-size:22px; line-height:1.75; color:#57606a; margin:0;">
         {{ _desc | escape }}
-      </p>
+      </div>
       {%- endif -%}
     </div>
 
     <div style="margin:0 48px; border-top:1px solid #eaecef;"></div>
 
-    <div style="padding:36px 48px 48px; display:flex; justify-content:space-between; align-items:center;">
-      <div style="display:flex; flex-direction:column; gap:8px;">
-        <span style="font-size:22px; color:#1f2328; font-weight:600;">{{ _author | escape }}</span>
-        <span style="font-size:15px; color:#8b949e;">{{ page.date | date: "%Y-%m-%d" }} &middot; {{ site.title | escape }}</span>
+    {%- assign _host = site.url | remove: 'https://' | remove: 'http://' | remove: 'www.' -%}
+    <div style="padding:24px 48px 32px; display:flex; justify-content:space-between; align-items:center; gap:24px;">
+      <div style="flex:1; min-width:0; display:flex; flex-direction:column; gap:4px;">
+        <div style="font-size:15px; color:#1f2328; font-weight:600; letter-spacing:-0.005em;">{{ _author | escape }}</div>
+        <div style="font-size:13px; color:#8b949e; letter-spacing:0.02em;">
+          {%- if _host and _host != '' -%}{{ _host }} &middot; {% endif -%}
+          {{ page.date | date: "%Y-%m-%d" }}
+        </div>
       </div>
-      <div id="post-card-qrcode" style="width:96px; height:96px; background:#fff;"></div>
+      <div id="post-card-qrcode" style="width:72px; height:72px; background:#fff; flex-shrink:0;"></div>
     </div>
   </div>
 </div>
@@ -285,8 +289,8 @@
       if (qrEl.hasChildNodes()) return;
       new window.QRCode(qrEl, {
         text: location.href,
-        width: 96,
-        height: 96,
+        width: 72,
+        height: 72,
         correctLevel: window.QRCode.CorrectLevel.M
       });
     }
@@ -329,7 +333,8 @@
         var dataUrl = await window.htmlToImage.toPng(card, {
           pixelRatio: 2,
           cacheBust: true,
-          backgroundColor: '#ffffff'
+          backgroundColor: '#ffffff',
+          skipFonts: true
         });
         setImage(dataUrl);
         downloadLink.download = sanitizeFilename(document.title) + '.png';

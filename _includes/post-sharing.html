@@ -15,6 +15,28 @@
     margin: 0 4px;
     border-width: 1px;
   }
+  #download-card-btn.share-icon-btn {
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    margin: 0 4px;
+    border-radius: 50%;
+    border: 1px solid #5856d6;
+    background: transparent;
+    color: #5856d6;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    line-height: 1;
+    vertical-align: middle;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  #download-card-btn.share-icon-btn:hover {
+    background: #5856d6;
+    color: #fff;
+  }
+  #download-card-btn.share-icon-btn svg { display: block; }
 </style>
 
 <div class="share-wrapper d-flex align-items-center">
@@ -33,12 +55,15 @@
       id="download-card-btn"
       type="button"
       aria-label="Download share card"
-      class="btn small"
+      class="share-icon-btn"
       data-bs-toggle="tooltip"
       data-bs-placement="top"
       title="下载分享卡片"
     >
-      <i class="fa-fw fas fa-image pe-none fs-6"></i>
+      <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true" focusable="false">
+        <path d="M14.002 5.5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z"/>
+        <path d="M2 1a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V3a2 2 0 0 0-2-2H2zm12 1a1 1 0 0 1 1 1v6.5l-3.777-1.947a.5.5 0 0 0-.577.093l-3.71 3.71-2.66-1.772a.5.5 0 0 0-.63.062L1.002 12V3a1 1 0 0 1 1-1h12z"/>
+      </svg>
     </button>
 
     <button
