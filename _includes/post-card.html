@@ -331,6 +331,59 @@
     var inlinedCoverUrl = null;
     var coverPromise = null;
 
+    function preloadImage(src, timeoutMs) {
+      return new Promise(function (resolve) {
+        var im = new Image();
+        im.decoding = 'async';
+        var settled = false;
+        var timer = setTimeout(function () {
+          if (settled) return;
+          settled = true;
+          resolve(null);
+        }, timeoutMs);
+        function finish(result) {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve(result);
+        }
+        im.onload = function () {
+          if (typeof im.decode === 'function') {
+            im.decode().then(function () { finish(im); }, function () { finish(im); });
+          } else {
+            finish(im);
+          }
+        };
+        im.onerror = function () { finish(null); };
+        im.src = src;
+      });
+    }
+
+    function blobToDataUrl(blob) {
+      return new Promise(function (resolve, reject) {
+        var fr = new FileReader();
+        fr.onload = function () { resolve(fr.result); };
+        fr.onerror = function () { reject(fr.error || new Error('FileReader error')); };
+        fr.readAsDataURL(blob);
+      });
+    }
+
+    function canvasDataUrlFromImage(im) {
+      try {
+        var canvas = document.createElement('canvas');
+        canvas.width = im.naturalWidth;
+        canvas.height = im.naturalHeight;
+        if (!canvas.width || !canvas.height) return null;
+        var ctx = canvas.getContext('2d');
+        ctx.drawImage(im, 0, 0);
+        var dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+        if (!dataUrl || dataUrl.length < 128) return null;
+        return dataUrl;
+      } catch (_) {
+        return null;
+      }
+    }
+
     function inlineCover() {
       var img = document.getElementById('post-card-cover');
       if (!img) return Promise.resolve(true);
@@ -343,18 +396,20 @@
       if (!src) return Promise.resolve(true);
 
       coverPromise = (async function () {
+        var warm = await preloadImage(src, 10000);
+        if (!warm) {
+          coverPromise = null;
+          return false;
+        }
         var ctrl = new AbortController();
-        var timer = setTimeout(function () { ctrl.abort(); }, 10000);
+        var timer = setTimeout(function () { ctrl.abort(); }, 8000);
         try {
           var res = await fetch(src, { cache: 'force-cache', signal: ctrl.signal });
           if (!res.ok) throw new Error('fetch status ' + res.status);
           var blob = await res.blob();
-          var dataUrl = await new Promise(function (resolve, reject) {
-            var fr = new FileReader();
-            fr.onload = function () { resolve(fr.result); };
-            fr.onerror = function () { reject(fr.error || new Error('FileReader error')); };
-            fr.readAsDataURL(blob);
-          });
+          if (!blob || !blob.size) throw new Error('empty blob');
+          var dataUrl = await blobToDataUrl(blob);
+          if (!dataUrl || dataUrl.length < 128) throw new Error('empty data url');
           inlinedCoverUrl = dataUrl;
           img.src = dataUrl;
           if (typeof img.decode === 'function') {
@@ -362,8 +417,17 @@
           }
           return true;
         } catch (e) {
+          console.warn('[post-card] fetch path failed, trying canvas', e);
+          var canvasUrl = canvasDataUrlFromImage(warm);
+          if (canvasUrl) {
+            inlinedCoverUrl = canvasUrl;
+            img.src = canvasUrl;
+            if (typeof img.decode === 'function') {
+              try { await img.decode(); } catch (_) {}
+            }
+            return true;
+          }
           coverPromise = null;
-          console.warn('[post-card] inlineCover failed', e);
           return false;
         } finally {
           clearTimeout(timer);
