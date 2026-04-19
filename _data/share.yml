@@ -14,6 +14,12 @@ platforms:
     icon: "fab fa-telegram"
     link: "https://t.me/share/url?url=URL&text=TITLE"
 
+  # WeChat sharing is handled by a QR modal / native share intent, not a URL.
+  # The `link` field is intentionally empty and unused.
+  - type: WeChat
+    icon: "fab fa-weixin"
+    link: ""
+
   # Uncomment below if you need to.
   #
   # - type: Linkedin

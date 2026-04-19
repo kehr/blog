@@ -1,0 +1,172 @@
+<!-- WeChat share overlay + lazy QR loader (framework-free) -->
+
+<div id="wechat-share-overlay" class="wechat-share-overlay" hidden>
+  <div
+    class="wechat-share-box"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="wechat-share-title"
+  >
+    <div class="wechat-share-header">
+      <h5 id="wechat-share-title" class="wechat-share-title">
+        <i class="fab fa-weixin wechat-share-title-icon" aria-hidden="true"></i>
+        分享到微信
+      </h5>
+      <button
+        type="button"
+        class="wechat-share-close"
+        aria-label="Close"
+        data-wechat-close
+      >&times;</button>
+    </div>
+    <div class="wechat-share-body">
+      <div
+        id="wechat-share-qrcode"
+        class="wechat-share-qrcode"
+      ></div>
+      <p id="wechat-share-hint" class="wechat-share-hint">用微信扫一扫</p>
+    </div>
+  </div>
+</div>
+
+<style>
+  .wechat-share-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1080;
+  }
+  .wechat-share-overlay[hidden] { display: none; }
+  .wechat-share-box {
+    background: var(--card-bg, #fff);
+    color: var(--text-color, #333);
+    border-radius: 8px;
+    width: min(90vw, 320px);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    overflow: hidden;
+  }
+  .wechat-share-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--main-border-color, #eee);
+  }
+  .wechat-share-title {
+    margin: 0;
+    font-size: 1rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .wechat-share-title-icon {
+    color: #07c160;
+    font-size: 1.15rem;
+  }
+  .wechat-share-close {
+    background: none;
+    border: 0;
+    font-size: 1.5rem;
+    line-height: 1;
+    cursor: pointer;
+    color: inherit;
+  }
+  .wechat-share-body { padding: 20px; text-align: center; }
+  .wechat-share-qrcode {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 200px;
+  }
+  .wechat-share-qrcode img,
+  .wechat-share-qrcode canvas { display: block; }
+  .wechat-share-hint {
+    margin: 12px 0 0;
+    color: var(--text-muted-color, #888);
+    font-size: 0.9rem;
+  }
+</style>
+
+<script>
+  (function () {
+    var QR_CDN = 'https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js';
+    var btn = document.querySelector('.share-wechat-btn');
+    var overlay = document.getElementById('wechat-share-overlay');
+    var qrContainer = document.getElementById('wechat-share-qrcode');
+    var hintEl = document.getElementById('wechat-share-hint');
+    if (!btn || !overlay || !qrContainer) return;
+
+    var qrRendered = false;
+
+    function loadQRLib(onReady) {
+      if (window.QRCode) return onReady();
+      var s = document.createElement('script');
+      s.src = QR_CDN;
+      s.async = true;
+      s.onload = onReady;
+      s.onerror = function () {
+        hintEl.textContent = '二维码加载失败，请手动复制链接';
+      };
+      document.head.appendChild(s);
+    }
+
+    function renderQR() {
+      if (qrRendered || !window.QRCode) return;
+      qrContainer.replaceChildren();
+      new window.QRCode(qrContainer, {
+        text: location.href,
+        width: 200,
+        height: 200,
+        correctLevel: window.QRCode.CorrectLevel.M
+      });
+      qrRendered = true;
+    }
+
+    function showOverlay() {
+      overlay.hidden = false;
+      document.addEventListener('keydown', onKeydown);
+    }
+
+    function hideOverlay() {
+      overlay.hidden = true;
+      document.removeEventListener('keydown', onKeydown);
+    }
+
+    function onKeydown(e) {
+      if (e.key === 'Escape') hideOverlay();
+    }
+
+    overlay.addEventListener('click', function (e) {
+      if (e.target === overlay || e.target.closest('[data-wechat-close]')) {
+        hideOverlay();
+      }
+    });
+
+    btn.addEventListener('click', function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      var ua = navigator.userAgent || '';
+      var inWeChat = /MicroMessenger/i.test(ua);
+      var isMobile = /Mobi|Android|iPhone|iPad/i.test(ua);
+
+      if (inWeChat) {
+        alert('请点击右上角菜单分享给朋友或朋友圈');
+        return;
+      }
+
+      if (isMobile && typeof navigator.share === 'function') {
+        navigator
+          .share({ title: document.title, url: location.href })
+          .catch(function () {});
+        return;
+      }
+
+      showOverlay();
+      loadQRLib(renderQR);
+    });
+  })();
+</script>
