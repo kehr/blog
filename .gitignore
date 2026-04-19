@@ -32,3 +32,8 @@ assets/js/dist
 
 # Local migration backup
 .backup/
+
+# Obsidian
+.obsidian/workspace*
+.obsidian/cache
+
