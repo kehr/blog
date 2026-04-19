@@ -37,3 +37,5 @@ assets/js/dist
 .obsidian/workspace*
 .obsidian/cache
 
+# Claude
+.claude
