@@ -33,7 +33,7 @@
 |------|------|--------|---------------|------|
 | Step 0: docs/draft 落地 | completed | 20b0902 | PRD/TRD/Plan/执行报告/草稿夹具一并入栈 | - |
 | Step 1: 配置与错误类型 | completed | c47af22 | TDD 节奏；30 个测试全绿；PyYAML API 对照 dir(yaml) 确认 | - |
-| Step 2: PublishContext 与 CLI | pending | - | - | - |
+| Step 2: PublishContext 与 CLI | completed | aeac0b1 | TDD 全绿 (80/80)；`-abc` slug 被 argparse 拦在 SystemExit(2)，测试接受 `(InvalidSlugError, SystemExit)` 两种拒绝形式；parse_args 返回 Optional[PublishContext]，None 表示 --list 模式已处理；argparse API 通过 `dir()` 与 `help()` 验证 | - |
 | Step 3: 草稿读取与 title | pending | - | - | - |
 | Step 4: Description 提取 | pending | - | - | - |
 | Step 5: 图片处理 | pending | - | - | - |
