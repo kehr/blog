@@ -2,14 +2,11 @@
 title: Steve Jobs' commencement speech
 description: Stay Hungry, Stay Foolish.
 date: 2017-06-09
-categories:
-- Older Posts
-tags:
-- life
+categories: Life
+tags: Speech
 image:
   path: "/assets/img/travel.jpg"
 ---
-
 I am honored to be with you today at your commencement from one of the finest universities in the world. I never graduated from college. Truth be told, this is the closest I’ve ever gotten to a college graduation. Today I want to tell you three stories from my life. That’s it. No big deal. Just three stories.
 
 The first story is about connecting the dots.
@@ -63,5 +60,3 @@ Stewart and his team put out several issues of The Whole Earth Catalog, and then
 Stay Hungry. Stay Foolish.
 
 Thank you all very much.
-
-

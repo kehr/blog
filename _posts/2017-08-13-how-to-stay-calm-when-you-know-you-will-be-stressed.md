@@ -1,21 +1,17 @@
 ---
 title: 如何在紧张状态下保持镇静
-description: 在事情没有完成之前，永远为最坏的情况做好准备。
-categories:
-- Older Posts
-tags:
-- life
+categories: Life
+tags: Yotube
 image:
   path: "/assets/img/ted.jpg"
 ---
-
 <iframe src="https://embed.ted.com/talks/daniel_levitin_how_to_stay_calm_when_you_know_you_ll_be_stressed" width="720px" height="405px" frameborder="0" scrolling="no" webkitAllowFullScreen mozallowfullscreen allowFullScreen></iframe>
 
 <br>
 
 > You're not at your best when you're stressed.
 
-这句话很有意思。无论是入学考试，面试，还是向领导汇报工作，亦或者是职称答辩，当我们在紧张状态下完成任务时，事后总会叹息，其实自己可以做的更好。这个`talk` 的前半段在告诉我们，如果你紧张（压力过大）了，那么事情多半会做不好。
+这句话很有意思。无论是入学考试，面试，还是向领导汇报工作，亦或者是职称答辩，当我们在紧张状态下完成任务时，事后总会叹息，其实自己可以做的更好。这个 `talk` 的前半段在告诉我们，如果你紧张（压力过大）了，那么事情多半会做不好。
 
 那么有什么方法能缓解紧张呢？**“提前考虑失败的可能性”**。
 

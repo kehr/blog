@@ -1,14 +1,10 @@
 ---
 title: 云产品如今在国内的发展如何？
-description: 从2018年北京Qcon参会云产品公司看国内云产品的发展。
-tags:
-- cloud
+categories: Reading
+tags: cloud
 image:
   path: "/assets/img/work.jpg"
-categories:
-- Older Posts
 ---
-
 ## 国内云产品概览
 
 ![国内各云服务厂商](/assets/img/cloud-of-china.png)
@@ -67,13 +63,7 @@ categories:
 
 未来的云服务市场必定会比现在更精彩，个人开发和创业成本也会降到最低，期待一个合适的时机和靠谱的人做有趣的事情。
 
-
-[1]: https://mp.weixin.qq.com/s?src=3&timestamp=1525706439&ver=1&signature=plxFcNT4dK2Ge*jf97Yw6o4ec7dOgIQoVraZu4o8J1NqGtRWtXbbTlrbVgvwGKvgIeOVJi2p8XmIxgdzb2ajYihtnkuv22deJIIDi5dBcV4ipjiyAeCfyD9RJEIgR0i*Og3pZ0o88kZd9BcFVNJjOQ==
-[tingyun]: https://www.tingyun.com
-[qincloud]: https://www.qingcloud.com
-[qiniu]: https://www.qiniu.com
-[youyun]: https://www.uyun.cn
-[yunpian]: https://www.yunpian.com 
+[yunpian]: https://www.yunpian.com
 [tenxcloud]: https://www.tenxcloud.com
 [aliyun]: https://www.aliyun.com
 [baiduyun]: https://cloud.baidu.com
@@ -85,5 +75,8 @@ categories:
 [tbass]: https://cloud.tencent.com/product/tbaas
 [mammut]: https://www.163yun.com/product/mammut
 [youdata]: https://www.163yun.com/product/youdata
-
-
+[1]: https://mp.weixin.qq.com/s?src=3×tamp=1525706439&ver=1&signature=plxFcNT4dK2Ge*jf97Yw6o4ec7dOgIQoVraZu4o8J1NqGtRWtXbbTlrbVgvwGKvgIeOVJi2p8XmIxgdzb2ajYihtnkuv22deJIIDi5dBcV4ipjiyAeCfyD9RJEIgR0i*Og3pZ0o88kZd9BcFVNJjOQ==
+[tingyun]: https://www.tingyun.com
+[qincloud]: https://www.qingcloud.com
+[qiniu]: https://www.qiniu.com
+[youyun]: https://www.uyun.cn
