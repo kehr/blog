@@ -3,7 +3,7 @@ PYTHON ?= python3
 HOST   ?= 127.0.0.1
 PORT   ?= 4000
 
-.PHONY: help install serve serve-drafts build prod check new publish publish-list publish-check test-publish clean
+.PHONY: help install serve serve-drafts build prod check lint lint-inline-scripts new publish publish-list publish-check test-publish clean
 
 help:
 	@echo "make install            Install gems"
@@ -12,6 +12,8 @@ help:
 	@echo "make build              Build site to _site/"
 	@echo "make prod               Build site with JEKYLL_ENV=production"
 	@echo "make check              Production build + htmlproofer (internal links)"
+	@echo "make lint               Run all template lints"
+	@echo "make lint-inline-scripts  Block '//' line comments inside inline <script> blocks"
 	@echo "make new title=...      Create a new draft in _drafts/ (optional: slug=...)"
 	@echo "make publish file=... slug=...  Publish draft to _posts/ with full pipeline"
 	@echo "make publish-list       List all drafts in _drafts/"
@@ -39,6 +41,11 @@ check: prod
 	  --disable-external \
 	  --allow-hash-href \
 	  --ignore-urls "/^\/(posts|tags|categories|archives)\//"
+
+lint: lint-inline-scripts
+
+lint-inline-scripts:
+	@$(PYTHON) scripts/lint-inline-scripts.py
 
 new:
 	@if [ -z "$(title)" ]; then \

@@ -45,6 +45,12 @@ jobs:
           ruby-version: 3.4
           bundler-cache: true
 
+      - name: Lint inline scripts
+        # Blocks `//` line comments inside <script> tags. compress_html collapses
+        # script newlines in production, which lets such a comment swallow the
+        # rest of the script body. Static invocation, no user input.
+        run: python3 scripts/lint-inline-scripts.py
+
       - name: Build site
         run: bundle exec jekyll b -d "_site${{ steps.pages.outputs.base_path }}"
         env:
