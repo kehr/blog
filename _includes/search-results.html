@@ -75,7 +75,7 @@
       overlay.removeAttribute('hidden');
       overlay.setAttribute('aria-hidden', 'false');
       document.body.classList.add(BODY_CLASS);
-      // Force reflow so the transition runs from the hidden state.
+      /* Force reflow so the transition runs from the hidden state. */
       void overlay.offsetWidth;
       overlay.classList.add(OPEN_CLASS);
       requestAnimationFrame(function () {
@@ -92,7 +92,7 @@
       setTimeout(function () {
         overlay.setAttribute('aria-hidden', 'true');
         overlay.setAttribute('hidden', '');
-        // Reset query so re-opening starts clean.
+        /* Reset query so re-opening starts clean. */
         if (input.value !== '') {
           input.value = '';
           input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -182,7 +182,7 @@
       }
     });
 
-    // Auto-highlight first result whenever the result list re-renders.
+    /* Auto-highlight first result whenever the result list re-renders. */
     if (resultWrapper) {
       var observer = new MutationObserver(function () {
         clearActive();
@@ -192,7 +192,7 @@
       observer.observe(resultWrapper, { childList: true, subtree: true });
     }
 
-    // Hover follows the keyboard highlight model: hovering an item makes it active.
+    /* Hover follows the keyboard highlight model: hovering an item makes it active. */
     overlay.addEventListener('mouseover', function (e) {
       var item = e.target.closest('.search-result-item');
       if (!item) return;
