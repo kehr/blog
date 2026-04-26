@@ -378,12 +378,19 @@ def strip_markdown_inline(s: str) -> str:
 
     Handles: [text](url) links, `code`, **bold**, *italic*, ***both***,
     __bold__, _italic_.  Applied in order: links first, then code spans,
-    then asterisk sequences, then underscore sequences.
+    then asterisk sequences (longest first), then underscore sequences.
     """
-    s = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", s)  # [text](url) -> text
-    s = re.sub(r"`([^`]+)`", r"\1", s)               # `code` -> code
-    s = re.sub(r"\*{1,3}([^*]+)\*{1,3}", r"\1", s)   # **bold** *italic* ***both***
-    s = re.sub(r"_{1,2}([^_]+)_{1,2}", r"\1", s)     # __bold__ _italic_
+    # Links: [text](url); URL allows one level of nested parentheses
+    s = re.sub(r"\[([^\]]+)\]\([^()]*(?:\([^()]*\)[^()]*)*\)", r"\1", s)
+    # Inline code: `code` -> code
+    s = re.sub(r"`([^`]+)`", r"\1", s)
+    # Asterisk emphasis: triple, then double, then single (longest first).
+    # Double-star pattern uses (.+?) to allow a single * inside **text**.
+    s = re.sub(r"\*\*\*([^*]+)\*\*\*", r"\1", s)
+    s = re.sub(r"\*\*(?!\*)(.+?)(?<!\*)\*\*(?!\*)", r"\1", s)
+    s = re.sub(r"\*([^*]+)\*",         r"\1", s)
+    # Underscore emphasis: only when surrounded by non-word chars
+    s = re.sub(r"(?<!\w)_{1,2}([^_]+)_{1,2}(?!\w)", r"\1", s)
     return s.strip()
 
 

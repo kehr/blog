@@ -1131,3 +1131,55 @@ class TestRunPipelineThroughDescription:
             ["--file", "test-post", "--slug", "test-post", "--src", str(src_dir)]
         )
         assert ret == 0
+
+
+# ---------------------------------------------------------------------------
+# BUG regression tests: strip_markdown_inline edge cases
+# ---------------------------------------------------------------------------
+
+
+class TestStripMarkdownInlineSnakeCase:
+    """BUG-1: underscore regex must not consume underscores inside identifiers."""
+
+    def test_preserves_snake_case(self):
+        assert strip_markdown_inline("snake_case_name") == "snake_case_name"
+
+    def test_preserves_path_underscores(self):
+        assert strip_markdown_inline("/api/v1/user_profile") == "/api/v1/user_profile"
+
+    def test_still_strips_single_underscore_emphasis(self):
+        assert strip_markdown_inline("_emphasis_") == "emphasis"
+
+    def test_still_strips_double_underscore_bold(self):
+        assert strip_markdown_inline("__strong__") == "strong"
+
+
+class TestStripMarkdownInlineLinkWithParens:
+    """BUG-2: link regex must handle URLs that contain parentheses."""
+
+    def test_link_with_parens_in_url(self):
+        result = strip_markdown_inline(
+            "[Wiki Foo](https://en.wikipedia.org/wiki/Foo_(bar))"
+        )
+        assert result == "Wiki Foo"
+        assert ")" not in result
+
+    def test_simple_link_still_works(self):
+        assert strip_markdown_inline("[a](https://x)") == "a"
+
+
+class TestStripMarkdownInlineMixedBoldItalic:
+    """BUG-3: asterisk regex must match longest delimiter first to avoid residual marks."""
+
+    def test_mixed_bold_italic_no_double_asterisk_residue(self):
+        result = strip_markdown_inline("**a*b**")
+        assert "**" not in result
+
+    def test_triple_asterisk_only(self):
+        assert strip_markdown_inline("***x***") == "x"
+
+    def test_double_asterisk_only(self):
+        assert strip_markdown_inline("**x**") == "x"
+
+    def test_single_asterisk_only(self):
+        assert strip_markdown_inline("*x*") == "x"
