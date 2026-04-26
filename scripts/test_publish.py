@@ -1,8 +1,10 @@
-"""Tests for publish.py - Step 1: config and error types. Step 2: CLI and context. Step 3: draft loader and title resolver. Step 4: description extractor. Step 5: image scanner and link rewriter. Step 6: front matter builder and serializer."""
+"""Tests for publish.py - Step 1: config and error types. Step 2: CLI and context. Step 3: draft loader and title resolver. Step 4: description extractor. Step 5: image scanner and link rewriter. Step 6: front matter builder and serializer. Step 7: assemble/commit/pipeline integration."""
+import shutil
 import sys
 from datetime import datetime
 from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -20,13 +22,17 @@ from publish import (
     PublishError,
     TargetPostExistsError,
     _yaml_quote,
+    assemble_post,
     build_frontmatter,
     classify_path,
+    commit_filesystem,
     extract_description,
     hashes_equal,
+    load_config,
     load_draft,
     parse_args,
     parse_list,
+    print_plan,
     process_images,
     resolve_title,
     run,
@@ -2422,3 +2428,492 @@ class TestRunPipelineThroughFrontmatter:
         fm = captured[0].front_matter
         for field in FIELD_ORDER:
             assert field in fm, f"Missing field: {field}"
+
+
+# ---------------------------------------------------------------------------
+# Step 7: helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_full_repo(tmp_path: Path) -> Path:
+    """Create a minimal repo layout with a real PNG image and publish.yml."""
+    (tmp_path / "_drafts").mkdir()
+    (tmp_path / "_posts").mkdir()
+    (tmp_path / "_data").mkdir()
+    (tmp_path / "assets" / "img" / "posts").mkdir(parents=True)
+    (tmp_path / "_data" / "publish.yml").write_text(
+        "defaults:\n  categories: [Notes]\n  tags: [notes]\n", encoding="utf-8"
+    )
+    # Minimal valid 1x1 PNG (67 bytes)
+    png_bytes = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+        b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00"
+        b"\x00\x01\x01\x00\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    (tmp_path / "test-image.png").write_bytes(png_bytes)
+    return tmp_path
+
+
+def _make_full_ctx(repo: Path, slug: str = "test-post") -> PublishContext:
+    """Build a fully configured PublishContext ready for assemble_post/commit_filesystem."""
+    import publish as pub
+    src_dir = repo / "_drafts"
+    ctx = PublishContext(
+        draft_file=src_dir / "test.md",
+        slug=slug,
+        src_dir=src_dir,
+        cli_categories=None,
+        cli_tags=None,
+        cli_image=None,
+        cli_description=None,
+        cli_date=None,
+        dry_run=False,
+        force=False,
+        verbose=False,
+    )
+    ctx.repo_root = repo
+    ctx.config = PublishConfig(
+        default_categories=["Notes"],
+        default_tags=["notes"],
+        default_image_path="/assets/img/default.jpg",
+        default_description="",
+        desc_max_length=160,
+        desc_strip_markdown=True,
+        images_posts_dir=Path("assets/img/posts"),
+        images_url_prefix="/assets/img/posts",
+        posts_dir=Path("_posts"),
+        slug_pattern="^[a-z0-9][a-z0-9-]*$",
+        fail_on_existing_post=True,
+    )
+    ctx.title = "Test Post"
+    ctx.description = "A test description."
+    import datetime as dt_module
+    tz = dt_module.timezone(dt_module.timedelta(hours=8))
+    ctx.publish_date = datetime(2026, 4, 26, 14, 0, 0, tzinfo=tz)
+    ctx.raw_body = "# Test Post\n\nA test description.\n"
+    ctx.rewritten_body = ctx.raw_body
+    ctx.image_plan = []
+    ctx.front_matter = {
+        "title": ctx.title,
+        "description": ctx.description,
+        "date": ctx.publish_date,
+        "categories": ["Notes"],
+        "tags": ["notes"],
+        "image": {"path": "/assets/img/default.jpg"},
+    }
+    return ctx
+
+
+# ---------------------------------------------------------------------------
+# Step 7: load_config
+# ---------------------------------------------------------------------------
+
+
+class TestLoadConfig:
+    """Verification 11: load_config assigns repo_root from src_dir.parent."""
+
+    def test_load_config_assigns_repo_root(self, tmp_path: Path):
+        repo = _make_full_repo(tmp_path)
+        src_dir = repo / "_drafts"
+        ctx = PublishContext(
+            draft_file=src_dir / "x.md",
+            slug="x",
+            src_dir=src_dir,
+            cli_categories=None,
+            cli_tags=None,
+            cli_image=None,
+            cli_description=None,
+            cli_date=None,
+            dry_run=False,
+            force=False,
+            verbose=False,
+        )
+        load_config(ctx)
+        assert ctx.repo_root == repo
+
+    def test_load_config_loads_publish_yml(self, tmp_path: Path):
+        repo = _make_full_repo(tmp_path)
+        src_dir = repo / "_drafts"
+        ctx = PublishContext(
+            draft_file=src_dir / "x.md",
+            slug="x",
+            src_dir=src_dir,
+            cli_categories=None,
+            cli_tags=None,
+            cli_image=None,
+            cli_description=None,
+            cli_date=None,
+            dry_run=False,
+            force=False,
+            verbose=False,
+        )
+        load_config(ctx)
+        assert isinstance(ctx.config, PublishConfig)
+        assert ctx.config.default_categories == ["Notes"]
+
+
+# ---------------------------------------------------------------------------
+# Step 7: assemble_post
+# ---------------------------------------------------------------------------
+
+
+class TestAssemblePost:
+    """Verifications 9 & 10: target_post_path format and separator newline."""
+
+    def test_assemble_post_target_path_format(self, tmp_path: Path):
+        repo = _make_full_repo(tmp_path)
+        ctx = _make_full_ctx(repo, slug="my-slug")
+        assemble_post(ctx)
+        assert ctx.target_post_path is not None
+        assert ctx.target_post_path.name == "2026-04-26-my-slug.md"
+
+    def test_assemble_post_target_path_in_posts_dir(self, tmp_path: Path):
+        repo = _make_full_repo(tmp_path)
+        ctx = _make_full_ctx(repo, slug="my-slug")
+        assemble_post(ctx)
+        assert ctx.target_post_path.parent == repo / "_posts"
+
+    def test_assemble_post_separator_newline(self, tmp_path: Path):
+        repo = _make_full_repo(tmp_path)
+        ctx = _make_full_ctx(repo)
+        ctx.rewritten_body = "body content"
+        assemble_post(ctx)
+        # assembled_text must have exactly one newline between front matter and body
+        parts = ctx.assembled_text.split("---\n", 2)
+        # parts[0] = "" (before first ---), parts[1] = front matter content, parts[2] = rest
+        # The closing --- is the second occurrence; after it should be \nbody...
+        assert ctx.assembled_text.endswith("---\n\nbody content")
+
+    def test_assemble_post_body_already_starts_newline(self, tmp_path: Path):
+        repo = _make_full_repo(tmp_path)
+        ctx = _make_full_ctx(repo)
+        ctx.rewritten_body = "\nbody content"
+        assemble_post(ctx)
+        # Should not double the newline
+        assert "\n\n\n" not in ctx.assembled_text
+
+    def test_assemble_post_assembled_text_starts_with_front_matter(self, tmp_path: Path):
+        repo = _make_full_repo(tmp_path)
+        ctx = _make_full_ctx(repo)
+        assemble_post(ctx)
+        assert ctx.assembled_text.startswith("---\n")
+
+
+# ---------------------------------------------------------------------------
+# Step 7: print_plan
+# ---------------------------------------------------------------------------
+
+
+class TestPrintPlan:
+    """Verification 12: print_plan outputs key sections per PRD 3.7."""
+
+    def test_print_plan_describes_changes(self, tmp_path: Path, capsys):
+        repo = _make_full_repo(tmp_path)
+        ctx = _make_full_ctx(repo)
+        ctx.dry_run = True
+        # Add an image move to the plan
+        img_src = repo / "test-image.png"
+        img_target = repo / "assets/img/posts/test-post/test-image.png"
+        ctx.image_plan = [
+            ImageMove(source=img_src, target=img_target, new_url="/assets/img/posts/test-post/test-image.png")
+        ]
+        assemble_post(ctx)
+        print_plan(ctx)
+        out = capsys.readouterr().out
+        assert "draft :" in out
+        assert "post  :" in out
+        assert "images:" in out
+        assert "front matter:" in out
+
+    def test_print_plan_shows_source_and_target(self, tmp_path: Path, capsys):
+        repo = _make_full_repo(tmp_path)
+        ctx = _make_full_ctx(repo)
+        ctx.dry_run = True
+        img_src = repo / "test-image.png"
+        img_target = repo / "assets/img/posts/test-post/test-image.png"
+        ctx.image_plan = [
+            ImageMove(source=img_src, target=img_target, new_url="/assets/img/posts/test-post/test-image.png")
+        ]
+        assemble_post(ctx)
+        print_plan(ctx)
+        out = capsys.readouterr().out
+        assert "->" in out
+
+    def test_print_plan_shows_front_matter_fields(self, tmp_path: Path, capsys):
+        repo = _make_full_repo(tmp_path)
+        ctx = _make_full_ctx(repo)
+        ctx.dry_run = True
+        ctx.image_plan = []
+        assemble_post(ctx)
+        print_plan(ctx)
+        out = capsys.readouterr().out
+        assert "title:" in out
+        assert "description:" in out
+        assert "date:" in out
+
+    def test_print_plan_writes_to_stdout(self, tmp_path: Path, capsys):
+        """dry_run output goes to stdout, not stderr."""
+        repo = _make_full_repo(tmp_path)
+        ctx = _make_full_ctx(repo)
+        ctx.dry_run = True
+        ctx.image_plan = []
+        assemble_post(ctx)
+        print_plan(ctx)
+        captured = capsys.readouterr()
+        assert captured.out != ""
+        assert captured.err == ""
+
+
+# ---------------------------------------------------------------------------
+# Step 7: commit_filesystem
+# ---------------------------------------------------------------------------
+
+
+class TestCommitFilesystem:
+    """Verifications 5-7: rollback and best-effort unlink."""
+
+    def test_rollback_on_image_copy_failure(self, tmp_path: Path):
+        repo = _make_full_repo(tmp_path)
+        ctx = _make_full_ctx(repo)
+        # Write the draft file so unlink has something to not-unlink
+        ctx.draft_file.write_text("draft content", encoding="utf-8")
+        img_src = repo / "test-image.png"
+        img2_src = repo / "_data" / "publish.yml"  # second "image" (any existing file)
+        img_target1 = repo / "assets/img/posts/test-post/test-image.png"
+        img_target2 = repo / "assets/img/posts/test-post/publish.yml"
+        ctx.image_plan = [
+            ImageMove(source=img_src, target=img_target1, new_url="/assets/img/posts/test-post/test-image.png"),
+            ImageMove(source=img2_src, target=img_target2, new_url="/assets/img/posts/test-post/publish.yml"),
+        ]
+        assemble_post(ctx)
+
+        call_count = [0]
+        original_copy2 = shutil.copy2
+
+        def failing_copy2(src, dst):
+            call_count[0] += 1
+            if call_count[0] == 2:
+                raise OSError("simulated copy failure")
+            original_copy2(src, dst)
+
+        with patch("shutil.copy2", side_effect=failing_copy2):
+            with pytest.raises(OSError, match="simulated copy failure"):
+                commit_filesystem(ctx)
+
+        # First image should be rolled back
+        assert not img_target1.exists()
+        # Post should not have been written
+        assert not ctx.target_post_path.exists()
+        # Draft still exists
+        assert ctx.draft_file.exists()
+
+    def test_rollback_on_post_write_failure(self, tmp_path: Path):
+        repo = _make_full_repo(tmp_path)
+        ctx = _make_full_ctx(repo)
+        ctx.draft_file.write_text("draft content", encoding="utf-8")
+        img_src = repo / "test-image.png"
+        img_target = repo / "assets/img/posts/test-post/test-image.png"
+        ctx.image_plan = [
+            ImageMove(source=img_src, target=img_target, new_url="/assets/img/posts/test-post/test-image.png"),
+        ]
+        assemble_post(ctx)
+
+        with patch.object(Path, "write_text", side_effect=OSError("simulated write failure")):
+            with pytest.raises(OSError, match="simulated write failure"):
+                commit_filesystem(ctx)
+
+        # Image should be rolled back
+        assert not img_target.exists()
+        # Draft still exists
+        assert ctx.draft_file.exists()
+
+    def test_draft_unlink_failure_keeps_success(self, tmp_path: Path, capsys):
+        repo = _make_full_repo(tmp_path)
+        ctx = _make_full_ctx(repo)
+        ctx.draft_file.write_text("draft content", encoding="utf-8")
+        ctx.image_plan = []
+        assemble_post(ctx)
+
+        original_unlink = Path.unlink
+
+        def failing_unlink(self, missing_ok=False):
+            if self == ctx.draft_file:
+                raise OSError("permission denied")
+            original_unlink(self, missing_ok=missing_ok)
+
+        with patch.object(Path, "unlink", failing_unlink):
+            commit_filesystem(ctx)
+
+        # Post should still be written
+        assert ctx.target_post_path.exists()
+        # Warning on stderr
+        captured = capsys.readouterr()
+        assert "warning" in captured.err
+        # Draft still exists (unlink failed)
+        assert ctx.draft_file.exists()
+
+
+# ---------------------------------------------------------------------------
+# Step 7: end-to-end pipeline via run()
+# ---------------------------------------------------------------------------
+
+
+class TestE2EPipeline:
+    """Verifications 1-4, 8, 13: full pipeline end-to-end tests."""
+
+    def test_e2e_chinese_draft_full_pipeline(self, tmp_path: Path):
+        repo = _make_full_repo(tmp_path)
+        drafts = repo / "_drafts"
+        img_src = repo / "test-image.png"
+        draft_content = f"# 测试草稿\n\n这是正文内容。\n\n![图片]({img_src})\n"
+        draft = drafts / "测试草稿.md"
+        draft.write_text(draft_content, encoding="utf-8")
+
+        rc = run([
+            "--file", "测试草稿",
+            "--slug", "test-post",
+            "--src", str(drafts),
+        ])
+        assert rc == 0
+
+        # Post exists
+        posts_dir = repo / "_posts"
+        import datetime as dt_module
+        today = dt_module.date.today().strftime("%Y-%m-%d")
+        post_file = posts_dir / f"{today}-test-post.md"
+        assert post_file.exists(), f"expected post at {post_file}"
+
+        # Image copied
+        img_dest = repo / "assets/img/posts/test-post/test-image.png"
+        assert img_dest.exists()
+
+        # Draft deleted
+        assert not draft.exists()
+
+    def test_e2e_front_matter_fields_correct(self, tmp_path: Path):
+        repo = _make_full_repo(tmp_path)
+        drafts = repo / "_drafts"
+        draft = drafts / "my-post.md"
+        draft.write_text("# My Post\n\nSome content.\n", encoding="utf-8")
+
+        rc = run([
+            "--file", "my-post",
+            "--slug", "my-post",
+            "--src", str(drafts),
+        ])
+        assert rc == 0
+
+        import datetime as dt_module
+        today = dt_module.date.today().strftime("%Y-%m-%d")
+        post_file = repo / "_posts" / f"{today}-my-post.md"
+        content = post_file.read_text(encoding="utf-8")
+        # title comes from draft filename stem ("my-post"), not H1 heading
+        assert "title: my-post" in content
+        assert "categories:" in content
+        assert "tags:" in content
+        assert "image:" in content
+
+    def test_e2e_dry_run_no_writes(self, tmp_path: Path, capsys):
+        repo = _make_full_repo(tmp_path)
+        drafts = repo / "_drafts"
+        img_src = repo / "test-image.png"
+        draft_content = f"# Draft Post\n\nContent.\n\n![img]({img_src})\n"
+        draft = drafts / "draft-post.md"
+        draft.write_text(draft_content, encoding="utf-8")
+
+        rc = run([
+            "--file", "draft-post",
+            "--slug", "draft-post",
+            "--src", str(drafts),
+            "--dry-run",
+        ])
+        assert rc == 0
+
+        out = capsys.readouterr().out
+        assert "draft :" in out
+        assert "post  :" in out
+        assert "images:" in out
+        assert "front matter:" in out
+
+        # No files written
+        assert list((repo / "_posts").iterdir()) == []
+        assert list((repo / "assets/img/posts").iterdir()) == []
+        # Draft still exists
+        assert draft.exists()
+
+    def test_e2e_target_post_exists_rejected(self, tmp_path: Path):
+        repo = _make_full_repo(tmp_path)
+        drafts = repo / "_drafts"
+        draft = drafts / "exists-post.md"
+        draft.write_text("# Exists Post\n\nContent.\n", encoding="utf-8")
+
+        import datetime as dt_module
+        today = dt_module.date.today().strftime("%Y-%m-%d")
+        existing_post = repo / "_posts" / f"{today}-exists-post.md"
+        existing_post.write_text("pre-existing content", encoding="utf-8")
+
+        rc = run([
+            "--file", "exists-post",
+            "--slug", "exists-post",
+            "--src", str(drafts),
+        ])
+        assert rc != 0
+
+    def test_e2e_force_overwrites(self, tmp_path: Path):
+        repo = _make_full_repo(tmp_path)
+        drafts = repo / "_drafts"
+        draft = drafts / "force-post.md"
+        draft.write_text("# Force Post\n\nNew content.\n", encoding="utf-8")
+
+        import datetime as dt_module
+        today = dt_module.date.today().strftime("%Y-%m-%d")
+        existing_post = repo / "_posts" / f"{today}-force-post.md"
+        existing_post.write_text("old content", encoding="utf-8")
+
+        rc = run([
+            "--file", "force-post",
+            "--slug", "force-post",
+            "--src", str(drafts),
+            "--force",
+        ])
+        assert rc == 0
+        new_content = existing_post.read_text(encoding="utf-8")
+        assert "Force Post" in new_content
+        assert "old content" not in new_content
+
+    def test_e2e_crlf_draft(self, tmp_path: Path):
+        """CRLF line endings in draft -> pipeline succeeds, post uses LF."""
+        repo = _make_full_repo(tmp_path)
+        drafts = repo / "_drafts"
+        draft = drafts / "crlf-post.md"
+        # Write with CRLF line endings
+        crlf_content = "# CRLF Post\r\n\r\nContent with CRLF line endings.\r\n"
+        draft.write_bytes(crlf_content.encode("utf-8"))
+
+        rc = run([
+            "--file", "crlf-post",
+            "--slug", "crlf-post",
+            "--src", str(drafts),
+        ])
+        assert rc == 0
+
+        import datetime as dt_module
+        today = dt_module.date.today().strftime("%Y-%m-%d")
+        post_file = repo / "_posts" / f"{today}-crlf-post.md"
+        assert post_file.exists()
+        content = post_file.read_text(encoding="utf-8")
+        # write_text uses the default newline convention; we verify no CRLF
+        assert "\r\n" not in content
+
+    def test_run_returns_zero_on_success(self, tmp_path: Path):
+        repo = _make_full_repo(tmp_path)
+        drafts = repo / "_drafts"
+        draft = drafts / "success-post.md"
+        draft.write_text("# Success Post\n\nContent here.\n", encoding="utf-8")
+
+        rc = run([
+            "--file", "success-post",
+            "--slug", "success-post",
+            "--src", str(drafts),
+        ])
+        assert rc == 0

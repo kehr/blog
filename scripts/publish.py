@@ -5,6 +5,7 @@ import argparse
 import hashlib
 import os
 import re
+import shutil
 import sys
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -162,7 +163,7 @@ class ImageMove:
 # PublishContext
 # ---------------------------------------------------------------------------
 
-# Slug validation pattern used at CLI parse time (Step 7 can make this config-driven).
+# Slug validation pattern used at CLI parse time.
 _SLUG_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 
 # Date formats accepted by --date
@@ -190,6 +191,7 @@ class PublishContext:
     config: Optional["PublishConfig"] = None
 
     # Computed results (filled by subsequent pipeline steps)
+    repo_root: Optional[Path] = None                 # assigned by load_config
     title: str = ""
     description: str = ""
     publish_date: datetime = field(
@@ -198,7 +200,8 @@ class PublishContext:
     image_plan: list = field(default_factory=list)   # list[ImageMove] in later step
     rewritten_body: str = ""
     front_matter: dict = field(default_factory=dict)
-    target_post_path: Path = field(default_factory=Path)
+    assembled_text: str = ""                         # populated by assemble_post
+    target_post_path: Optional[Path] = None          # populated by assemble_post
     raw_body: str = ""                               # populated by load_draft
 
 
@@ -628,7 +631,7 @@ def process_images(ctx: "PublishContext") -> None:
     Does NOT copy files -- copying is handled in commit_filesystem (Step 7).
     """
     config = ctx.config
-    repo_root = ctx.src_dir.parent
+    repo_root = ctx.repo_root if ctx.repo_root is not None else ctx.src_dir.parent
 
     # Collect all matches from both syntaxes
     all_matches: list[tuple[re.Match, str]] = []
@@ -807,6 +810,144 @@ def serialize_frontmatter(fm: dict) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Pipeline steps: load_config, assemble_post, print_plan, commit_filesystem
+# ---------------------------------------------------------------------------
+
+
+def load_config(ctx: "PublishContext") -> None:
+    """Load _data/publish.yml and assign repo_root + config to ctx.
+
+    repo_root is inferred as src_dir.parent (src_dir is a direct child of repo root,
+    e.g. _drafts/).
+    """
+    ctx.repo_root = ctx.src_dir.parent
+    ctx.config = PublishConfig.from_yaml(ctx.repo_root / "_data" / "publish.yml")
+
+
+def assemble_post(ctx: "PublishContext") -> None:
+    """Compose final post text and compute target_post_path on ctx."""
+    front_matter_text = serialize_frontmatter(ctx.front_matter)
+    body = ctx.rewritten_body
+    # Ensure exactly one newline between front matter block and body
+    if not body.startswith("\n"):
+        body = "\n" + body
+    ctx.assembled_text = front_matter_text + body
+    date_part = ctx.publish_date.strftime("%Y-%m-%d")
+    ctx.target_post_path = (
+        ctx.repo_root / ctx.config.posts_dir / f"{date_part}-{ctx.slug}.md"
+    )
+
+
+def print_plan(ctx: "PublishContext") -> None:
+    """Print a human-readable plan of actions for dry-run mode (PRD section 3.7)."""
+    repo_root = ctx.repo_root
+
+    def _rel(p: Path) -> str:
+        try:
+            return str(p.relative_to(repo_root))
+        except ValueError:
+            return str(p)
+
+    exists_note = " (will create)" if not ctx.target_post_path.exists() else " (will overwrite)"
+    print(f"draft : {_rel(ctx.draft_file)}")
+    print(f"post  : {_rel(ctx.target_post_path)}{exists_note}")
+    print("images:")
+    for move in ctx.image_plan:
+        if move.skip_copy:
+            print(f"  {move.source}")
+            print(f"    -> {_rel(move.target)} (already exists, identical)")
+        else:
+            print(f"  {move.source}")
+            print(f"    -> {_rel(move.target)}")
+    print("front matter:")
+    fm = ctx.front_matter
+    if "title" in fm:
+        print(f"  title: {fm['title']}")
+    if "description" in fm:
+        desc = fm["description"]
+        desc_len = len(desc)
+        if ctx.cli_description is not None:
+            note = "(from cli)"
+        elif ctx.config.default_description and desc == ctx.config.default_description:
+            note = "(from config default)"
+        else:
+            note = f"(auto-extracted, {desc_len} chars)"
+        print(f"  description: {desc} {note}")
+    if "date" in fm:
+        d = fm["date"]
+        if isinstance(d, datetime):
+            print(f"  date: {d.strftime('%Y-%m-%d %H:%M:%S %z')}")
+        else:
+            print(f"  date: {d}")
+    if "categories" in fm:
+        cats = fm["categories"]
+        print(f"  categories: [{', '.join(str(c) for c in cats)}]")
+    if "tags" in fm:
+        tags = fm["tags"]
+        print(f"  tags: [{', '.join(str(t) for t in tags)}]")
+    if "image" in fm:
+        img = fm["image"]
+        print("  image:")
+        print(f'    path: "{img["path"]}"')
+
+
+def commit_filesystem(ctx: "PublishContext") -> None:
+    """Copy images, write post, delete draft -- with rollback on failure.
+
+    Order: (1) copy images -> (2) write post -> (3) delete draft (best-effort).
+    On failure in steps 1-2, already-written files are removed before re-raising.
+    Failure in step 3 emits a warning but is not treated as an error.
+    """
+    if ctx.dry_run:
+        print_plan(ctx)
+        return
+
+    # Pre-flight: target post existence check
+    if ctx.target_post_path.exists() and not ctx.force:
+        if ctx.config.fail_on_existing_post:
+            raise TargetPostExistsError(
+                f"target post already exists: {ctx.target_post_path}",
+                suggestion="use --force to overwrite, or pick a different slug/date",
+            )
+
+    written_images: list[Path] = []
+    written_post: Optional[Path] = None
+    try:
+        # Step 1: copy images
+        for move in ctx.image_plan:
+            if move.skip_copy:
+                continue
+            move.target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(move.source, move.target)
+            written_images.append(move.target)
+        # Step 2: write post
+        ctx.target_post_path.parent.mkdir(parents=True, exist_ok=True)
+        ctx.target_post_path.write_text(ctx.assembled_text, encoding="utf-8")
+        written_post = ctx.target_post_path
+        # Step 3: delete draft (best-effort)
+        try:
+            ctx.draft_file.unlink()
+        except OSError as e:
+            print(
+                f"warning: failed to delete draft {ctx.draft_file}: {e}",
+                file=sys.stderr,
+            )
+    except Exception:
+        # Rollback: remove files written in this run
+        for p in written_images:
+            try:
+                p.unlink(missing_ok=True)
+            except Exception:
+                pass
+        if written_post is not None:
+            try:
+                written_post.unlink(missing_ok=True)
+            except Exception:
+                pass
+        raise
+
+
+# ---------------------------------------------------------------------------
 # Pipeline entry point
 # ---------------------------------------------------------------------------
 
@@ -818,14 +959,14 @@ def run(argv: list[str]) -> int:
         if ctx is None:
             # --list mode already handled
             return 0
-        repo_root = ctx.src_dir.parent
-        ctx.config = PublishConfig.from_yaml(repo_root / "_data" / "publish.yml")
+        load_config(ctx)
         load_draft(ctx)
         resolve_title(ctx)
         extract_description(ctx)
         process_images(ctx)
         build_frontmatter(ctx)
-        # Subsequent pipeline steps added in later steps.
+        assemble_post(ctx)
+        commit_filesystem(ctx)
         return 0
     except PublishError as e:
         print(f"error: {e}", file=sys.stderr)
