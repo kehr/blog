@@ -53,6 +53,10 @@
 | 2 | Step 2 code review | `_DATE_FORMATS` 不接受带 TZ 后缀的输入（如 `2026-04-26 14:00+08:00`） | 暂不扩展；若用户反馈再加。已在 PRD 限制为 `YYYY-MM-DD HH:MM` |
 | 3 | Step 2 spec review | PRD 3.2 参数表未单列 `--description`（PRD 写作疏漏，正文已说明） | Step 8 验收前回头补 PRD 表格 |
 | 4 | Step 2 code review | `publish.py:141` 注释 "Step 7 can make this config-driven" 是阶段性备注 | Step 7 完成后清理 |
+| 5 | Step 3 spec review | `load_config` 未提取为独立函数（TRD 3.2 单列）；run() 中内联调用 from_yaml | Step 7 集成时重构为独立函数，便于测试与未来 mock |
+| 6 | Step 3 code review | `run()` 中 `src_dir.parent` 推导 repo root 是隐含假设，子目录 src 会出错 | Step 7 加注释显式化或改为从 ctx 携带 repo_root |
+| 7 | Step 3 code review | 缺 CRLF 草稿测试覆盖 | Step 7 端到端测试时补一个 CRLF 用例 |
+| 8 | Step 3 code review | `DraftNotFoundError` suggestion 未截断长草稿清单 | 若用户反馈再加 `available[:10] + N more` |
 
 ## 6. 无法决策项（等待用户验收时确认）
 
