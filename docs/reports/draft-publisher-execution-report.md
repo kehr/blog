@@ -39,7 +39,7 @@
 | Step 5: 图片处理 | completed | f1bcfa1 | TDD 节奏；新增 39 个测试（共 188/188 全绿）；ImageMove dataclass 置于 PublishConfig 之后；MD_IMG 用 [^)\s]+ 排除空白与右括号，HTML_IMG 用 re.IGNORECASE；classify_path 三分支（remote/absolute/relative）；hashes_equal 用 sha1 流式比较；process_images 两轮扫描：第一轮累积 missing 列表与 seen_source 去重；第二轮 re.sub 回调仅替换 path 部分保留 alt/title/attributes；~ 路径用 os.path.expanduser 展开后 Path.resolve()；run() 在 extract_description 后紧接 process_images | - |
 | Step 6: Front matter 构建 | completed | 1f038f8 | TDD 节奏；新增 65 个测试（共 257/257 全绿）；FIELD_ORDER 常量驱动字段顺序；_yaml_quote 检测 ASCII 冒号/井号/引号/反斜杠/前导特殊字符/YAML 关键词/纯数字；全角冒号 U+FF1A 不是 YAML 结构字符，可裸值输出，与真实 post 风格一致；build_frontmatter 严格按 CLI > config default 优先级；serialize_frontmatter 手工拼装，不依赖 yaml.dump | - |
 | Step 7: 组装与事务写盘 | completed | 331085b | TDD 节奏；新增 21 个测试（共 280/280 全绿）；assemble_post 保证 front matter 与正文之间恰好一个换行；commit_filesystem 三步事务写盘，步骤 1-2 异常触发回滚，步骤 3 失败仅 stderr 警告；print_plan 全部输出到 stdout；load_config 提取为独立函数并赋值 ctx.repo_root；PublishContext 新增 repo_root / assembled_text 字段，target_post_path 改为 Optional[Path] = None；观察项 1/4/5/6/7 全部处理 | - |
-| Step 8: Makefile 与冒烟 | pending | - | - | - |
+| Step 8: Makefile 与冒烟 | completed | f33dd29 | Makefile 新增 publish/publish-list/publish-check/test-publish target；删除 scripts/publish-post.sh；PRD 3.2 补 --description 参数行；冒烟全 7 步通过；发现并修复 BUG-6（MD_IMG 正则不匹配含空格路径），新增 3 个测试，总计 283/283 全绿 | - |
 
 ## 4. 已修复问题
 
@@ -78,13 +78,21 @@
 - 修复后验证：`TestConfigRejectsAbsoluteImagesPostsDir::test_absolute_posts_dir_raises` 通过；已有配置文件（`assets/img/posts` 相对路径）不受影响
 - commit: 913ad04
 
+### BUG-6: MD_IMG 正则不匹配含空格的绝对路径
+
+- 发现时机：Step 8 冒烟测试；真实草稿引用 Typora 缓存图 `/Users/kyle/Library/Application Support/typora-user-images/...`，路径含空格
+- 原现象：`MD_IMG` 正则中 `path` 捕获组为 `[^)\s]+`，空格视为终止符，导致路径被截断，图片被误分类为 relative 而非 absolute，dry-run 输出 `images:` 段为空
+- 修复方案：将 `path` 捕获组改为 `[^)\"]+?`（非贪婪），允许路径含空格，仅在右括号和双引号处终止
+- 修复后验证：新增 3 个测试（`TestProcessImagesMdPathWithSpaces`）全部通过；原 280 个测试无回归；冒烟 dry-run 正确识别图片并输出搬运计划；283/283 全绿
+- commit: f33dd29
+
 ## 5. 已记录但未修复的观察项
 
 | # | 来源 | 观察 | 后续处理时机 |
 |---|------|------|-------------|
 | 1 | Step 2 code review | `PublishContext.target_post_path` 默认 `Path('.')`（truthy），后续若用 `if ctx.target_post_path` 判断会误命中 | √ Step 7 已修复：改为 `Optional[Path] = None` 并在 assemble_post 显式赋值 |
 | 2 | Step 2 code review | `_DATE_FORMATS` 不接受带 TZ 后缀的输入（如 `2026-04-26 14:00+08:00`） | 暂不扩展；若用户反馈再加。已在 PRD 限制为 `YYYY-MM-DD HH:MM` |
-| 3 | Step 2 spec review | PRD 3.2 参数表未单列 `--description`（PRD 写作疏漏，正文已说明） | Step 8 验收前回头补 PRD 表格 |
+| 3 | Step 2 spec review | PRD 3.2 参数表未单列 `--description`（PRD 写作疏漏，正文已说明） | √ Step 8 已修复：PRD 3.2 表格新增 `--description` 行 |
 | 4 | Step 2 code review | `publish.py:141` 注释 "Step 7 can make this config-driven" 是阶段性备注 | √ Step 7 已清理：注释已删除 |
 | 5 | Step 3 spec review | `load_config` 未提取为独立函数（TRD 3.2 单列）；run() 中内联调用 from_yaml | √ Step 7 已修复：提取为独立函数 `load_config(ctx)` |
 | 6 | Step 3 code review | `run()` 中 `src_dir.parent` 推导 repo root 是隐含假设，子目录 src 会出错 | √ Step 7 已修复：PublishContext 加 `repo_root` 字段，load_config 赋值，process_images 读 ctx.repo_root |
@@ -100,11 +108,28 @@
 
 ### 7.1 Spec compliance
 
-待全部 step 完成后填写。
+全部 8 个 step 完成。对照 PRD 验收标准（7 节 10 条）：
+
+| 条目 | 验证结果 |
+|------|---------|
+| 1. make publish 成功执行 | pass - 冒烟测试 c 通过，退出码 0 |
+| 2. post 生成，front matter 字段顺序正确 | pass - head -25 输出确认字段顺序 title/description/date/categories/tags/image |
+| 3. assets/img/posts/<slug>/ 含原图 | pass - image-20260425205116233.png 已拷贝 |
+| 4. post 中图片链接改写为站内路径 | pass - 正文图片 URL 改为 /assets/img/posts/how-to-design-a-good-skill/... |
+| 5. draft 被删除 | pass - _drafts/ 为空（smoke 后已还原） |
+| 6. make serve 渲染（浏览器） | 待用户主仓库验收 |
+| 7. publish-check 仅打印计划，不写盘 | pass - dry-run 输出四段，草稿未删除 |
+| 8. test-publish 全绿 | pass - 283/283 |
+| 9. 含 front matter 草稿拒绝 | pass - 冒烟测试 e，退出码 2，提示零 meta 契约 |
+| 10. 非法 slug 拒绝 | pass - 冒烟测试 f，退出码 2，提示正则规则 |
 
 ### 7.2 Code quality
 
-待全部 step 完成后填写。
+- 单文件 publish.py 约 760 行，含完整 docstring 和类型注解
+- 零外部依赖（除 PyYAML）
+- 事务写盘有回滚语义
+- 所有错误路径有 suggestion 字段
+- 283 个测试覆盖快乐路径与关键边界
 
 ## 8. 验收记录
 
