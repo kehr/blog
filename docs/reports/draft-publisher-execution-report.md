@@ -76,6 +76,7 @@
 | 6 | Step 3 code review | `run()` 中 `src_dir.parent` 推导 repo root 是隐含假设，子目录 src 会出错 | Step 7 加注释显式化或改为从 ctx 携带 repo_root |
 | 7 | Step 3 code review | 缺 CRLF 草稿测试覆盖 | Step 7 端到端测试时补一个 CRLF 用例 |
 | 8 | Step 3 code review | `DraftNotFoundError` suggestion 未截断长草稿清单 | 若用户反馈再加 `available[:10] + N more` |
+| 9 | Step 4 re-review | 链接正则只支持一层括号嵌套（`a_(b_(c))` 无法匹配） | 已在代码注释声明限制；博客 URL 罕见，不扩展 |
 
 ## 6. 无法决策项（等待用户验收时确认）
 
