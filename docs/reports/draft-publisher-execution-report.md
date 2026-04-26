@@ -47,7 +47,12 @@
 
 ## 5. 已记录但未修复的观察项
 
-（首次执行，暂无）
+| # | 来源 | 观察 | 后续处理时机 |
+|---|------|------|-------------|
+| 1 | Step 2 code review | `PublishContext.target_post_path` 默认 `Path('.')`（truthy），后续若用 `if ctx.target_post_path` 判断会误命中 | Step 7 实现 assemble_post 时改为 `Optional[Path] = None` 并显式赋值 |
+| 2 | Step 2 code review | `_DATE_FORMATS` 不接受带 TZ 后缀的输入（如 `2026-04-26 14:00+08:00`） | 暂不扩展；若用户反馈再加。已在 PRD 限制为 `YYYY-MM-DD HH:MM` |
+| 3 | Step 2 spec review | PRD 3.2 参数表未单列 `--description`（PRD 写作疏漏，正文已说明） | Step 8 验收前回头补 PRD 表格 |
+| 4 | Step 2 code review | `publish.py:141` 注释 "Step 7 can make this config-driven" 是阶段性备注 | Step 7 完成后清理 |
 
 ## 6. 无法决策项（等待用户验收时确认）
 
