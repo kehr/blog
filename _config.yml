@@ -6,7 +6,7 @@ theme: jekyll-theme-chirpy
 # The language of the webpage › http://www.lingoes.net/en/translator/langcode.htm
 # If it has the same name as one of the files in folder `_data/locales`, the layout language will also be changed,
 # otherwise, the layout language will use the default value of 'en'.
-lang: zh-CN
+lang: en
 
 # Change to your timezone › https://zones.arilyn.cc
 timezone: Asia/Shanghai
@@ -16,7 +16,7 @@ timezone: Asia/Shanghai
 
 title: Kyle Wang
 
-tagline: Explore the Future of Life
+tagline: Reading, thinking, writing, and exploring.
 
 description: Keep exploring the future of life.
 
@@ -79,6 +79,36 @@ pageviews:
 # false -> show Recently Updated + Trending Tags alongside TOC
 # Override per post via front matter: `toc_only: false`
 post_panel_toc_only: true
+
+# Home page list cover thumbnail
+# true  -> show post cover image on the home list (default chirpy card layout)
+# false -> writing-first text-only list (image hidden, body takes full width)
+home_cover: false
+
+# Sidebar nav icons (Home / Archives / About ...)
+# true  -> render the per-tab icon to the left of the label
+# false -> text-only nav, no icon column (default for a writing-first sidebar)
+sidebar_nav_icons: false
+
+# Post header "Updated" timestamp
+# true  -> show "Updated <date>" alongside "Posted <date>" in the meta row
+# false -> hide the lastmod date (default; meta row stays compact)
+post_show_lastmod: false
+
+# Sidebar home tab label
+# Empty -> fall back to chirpy's locale value (e.g. "Home" in en, "首页" in zh-CN)
+# Set to a string like "Blog" to override globally
+sidebar_home_label: Blog
+
+# Right panel "Recently Updated" block
+# true  -> render the latest 5 posted/updated posts list in the panel
+# false -> hide it (default; keeps the panel focused on TOC only)
+show_recently_updated: false
+
+# Right panel "Trending Tags" block
+# true  -> render the trending tags list at the bottom of the panel
+# false -> hide it (default)
+show_trending_tags: false
 
 # Prefer color scheme setting.
 #
@@ -151,6 +181,12 @@ pwa:
       # - "/example"  # URLs match `<SITE_URL>/example/*` will not be cached by the PWA
 
 paginate: 10
+
+# Post detail page UI
+# Hide the left sidebar on post detail pages for an immersive reading experience.
+# Set to false to keep the sidebar visible. Per-post override available via
+# front matter `hide_sidebar: true` or `hide_sidebar: false`.
+post_hide_sidebar: true
 
 # The base URL of your site
 baseurl: ""

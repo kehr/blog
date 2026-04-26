@@ -43,3 +43,5 @@ assets/js/dist
 # Python
 __pycache__/
 .pytest_cache/
+
+.playwright-mcp
