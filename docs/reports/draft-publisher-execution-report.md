@@ -38,7 +38,7 @@
 | Step 4: Description 提取 | completed | bbdbc50 | TDD 节奏；新增 42 个测试（共 139/139 全绿）；strip_markdown_inline 按 TRD 4.3 顺序：链接 -> 行内代码 -> 星号序列 -> 下划线序列；extract_description 四优先级：CLI 显式值 -> config default -> 自动提取 -> 空值警告；截断用 `len(text)` 即字符数，中文单字符一位符合规范；run() 中 resolve_title 后紧接 extract_description | - |
 | Step 5: 图片处理 | completed | f1bcfa1 | TDD 节奏；新增 39 个测试（共 188/188 全绿）；ImageMove dataclass 置于 PublishConfig 之后；MD_IMG 用 [^)\s]+ 排除空白与右括号，HTML_IMG 用 re.IGNORECASE；classify_path 三分支（remote/absolute/relative）；hashes_equal 用 sha1 流式比较；process_images 两轮扫描：第一轮累积 missing 列表与 seen_source 去重；第二轮 re.sub 回调仅替换 path 部分保留 alt/title/attributes；~ 路径用 os.path.expanduser 展开后 Path.resolve()；run() 在 extract_description 后紧接 process_images | - |
 | Step 6: Front matter 构建 | completed | 1f038f8 | TDD 节奏；新增 65 个测试（共 257/257 全绿）；FIELD_ORDER 常量驱动字段顺序；_yaml_quote 检测 ASCII 冒号/井号/引号/反斜杠/前导特殊字符/YAML 关键词/纯数字；全角冒号 U+FF1A 不是 YAML 结构字符，可裸值输出，与真实 post 风格一致；build_frontmatter 严格按 CLI > config default 优先级；serialize_frontmatter 手工拼装，不依赖 yaml.dump | - |
-| Step 7: 组装与事务写盘 | pending | - | - | - |
+| Step 7: 组装与事务写盘 | completed | 331085b | TDD 节奏；新增 21 个测试（共 280/280 全绿）；assemble_post 保证 front matter 与正文之间恰好一个换行；commit_filesystem 三步事务写盘，步骤 1-2 异常触发回滚，步骤 3 失败仅 stderr 警告；print_plan 全部输出到 stdout；load_config 提取为独立函数并赋值 ctx.repo_root；PublishContext 新增 repo_root / assembled_text 字段，target_post_path 改为 Optional[Path] = None；观察项 1/4/5/6/7 全部处理 | - |
 | Step 8: Makefile 与冒烟 | pending | - | - | - |
 
 ## 4. 已修复问题
@@ -82,13 +82,13 @@
 
 | # | 来源 | 观察 | 后续处理时机 |
 |---|------|------|-------------|
-| 1 | Step 2 code review | `PublishContext.target_post_path` 默认 `Path('.')`（truthy），后续若用 `if ctx.target_post_path` 判断会误命中 | Step 7 实现 assemble_post 时改为 `Optional[Path] = None` 并显式赋值 |
+| 1 | Step 2 code review | `PublishContext.target_post_path` 默认 `Path('.')`（truthy），后续若用 `if ctx.target_post_path` 判断会误命中 | √ Step 7 已修复：改为 `Optional[Path] = None` 并在 assemble_post 显式赋值 |
 | 2 | Step 2 code review | `_DATE_FORMATS` 不接受带 TZ 后缀的输入（如 `2026-04-26 14:00+08:00`） | 暂不扩展；若用户反馈再加。已在 PRD 限制为 `YYYY-MM-DD HH:MM` |
 | 3 | Step 2 spec review | PRD 3.2 参数表未单列 `--description`（PRD 写作疏漏，正文已说明） | Step 8 验收前回头补 PRD 表格 |
-| 4 | Step 2 code review | `publish.py:141` 注释 "Step 7 can make this config-driven" 是阶段性备注 | Step 7 完成后清理 |
-| 5 | Step 3 spec review | `load_config` 未提取为独立函数（TRD 3.2 单列）；run() 中内联调用 from_yaml | Step 7 集成时重构为独立函数，便于测试与未来 mock |
-| 6 | Step 3 code review | `run()` 中 `src_dir.parent` 推导 repo root 是隐含假设，子目录 src 会出错 | Step 7 加注释显式化或改为从 ctx 携带 repo_root |
-| 7 | Step 3 code review | 缺 CRLF 草稿测试覆盖 | Step 7 端到端测试时补一个 CRLF 用例 |
+| 4 | Step 2 code review | `publish.py:141` 注释 "Step 7 can make this config-driven" 是阶段性备注 | √ Step 7 已清理：注释已删除 |
+| 5 | Step 3 spec review | `load_config` 未提取为独立函数（TRD 3.2 单列）；run() 中内联调用 from_yaml | √ Step 7 已修复：提取为独立函数 `load_config(ctx)` |
+| 6 | Step 3 code review | `run()` 中 `src_dir.parent` 推导 repo root 是隐含假设，子目录 src 会出错 | √ Step 7 已修复：PublishContext 加 `repo_root` 字段，load_config 赋值，process_images 读 ctx.repo_root |
+| 7 | Step 3 code review | 缺 CRLF 草稿测试覆盖 | √ Step 7 已修复：`test_e2e_crlf_draft` 端到端测试覆盖 CRLF 行尾 |
 | 8 | Step 3 code review | `DraftNotFoundError` suggestion 未截断长草稿清单 | 若用户反馈再加 `available[:10] + N more` |
 | 9 | Step 4 re-review | 链接正则只支持一层括号嵌套（`a_(b_(c))` 无法匹配） | 已在代码注释声明限制；博客 URL 罕见，不扩展 |
 
