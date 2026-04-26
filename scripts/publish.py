@@ -1,8 +1,13 @@
 """publish.py - Draft-to-post publishing pipeline for Jekyll/Chirpy blog."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+import argparse
+import re
+import sys
+from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
+from typing import Optional
 
 import yaml
 
@@ -130,8 +135,199 @@ class PublishConfig:
 
 
 # ---------------------------------------------------------------------------
-# Module entry point stub (replaced in later steps)
+# PublishContext
 # ---------------------------------------------------------------------------
 
+# Slug validation pattern used at CLI parse time (Step 7 can make this config-driven).
+_SLUG_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+# Date formats accepted by --date
+_DATE_FORMATS = ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"]
+
+
+@dataclass
+class PublishContext:
+    """Pipeline-wide data carrier. Populated incrementally by each pipeline step."""
+
+    # CLI inputs
+    draft_file: Path                        # absolute path; existence not checked here
+    slug: str
+    src_dir: Path
+    cli_categories: Optional[list[str]]     # None = use default; [] = force empty
+    cli_tags: Optional[list[str]]
+    cli_image: Optional[str]
+    cli_description: Optional[str]
+    cli_date: Optional[datetime]
+    dry_run: bool
+    force: bool
+    verbose: bool
+
+    # Config (populated by load_config in a later step)
+    config: Optional["PublishConfig"] = None
+
+    # Computed results (filled by subsequent pipeline steps)
+    title: str = ""
+    description: str = ""
+    publish_date: datetime = field(
+        default_factory=lambda: datetime.now().astimezone()
+    )
+    image_plan: list = field(default_factory=list)   # list[ImageMove] in later step
+    rewritten_body: str = ""
+    front_matter: dict = field(default_factory=dict)
+    target_post_path: Path = field(default_factory=Path)
+    raw_body: str = ""                               # populated by load_draft
+
+
+# ---------------------------------------------------------------------------
+# CLI helpers
+# ---------------------------------------------------------------------------
+
+
+def parse_list(s: str) -> list[str]:
+    """Parse a comma-separated string into a list. Empty string returns []."""
+    return [x.strip() for x in s.split(",") if x.strip()]
+
+
+def _parse_date(s: str) -> datetime:
+    """Parse a date string in one of the accepted formats and attach local timezone."""
+    for fmt in _DATE_FORMATS:
+        try:
+            return datetime.strptime(s, fmt).astimezone()
+        except ValueError:
+            continue
+    raise argparse.ArgumentTypeError(
+        f"invalid date '{s}'; expected YYYY-MM-DD, YYYY-MM-DD HH:MM, or YYYY-MM-DD HH:MM:SS"
+    )
+
+
+def _build_argument_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="publish.py",
+        description="Publish a draft Markdown file as a Jekyll/Chirpy post.",
+    )
+    p.add_argument("--file", metavar="FILE",
+                   help="Draft filename (with or without .md extension)")
+    p.add_argument("--slug", metavar="SLUG",
+                   help="URL slug for the published post")
+    p.add_argument("--categories", metavar="CATEGORIES", default=None,
+                   help="Comma-separated categories; empty string forces empty list")
+    p.add_argument("--tags", metavar="TAGS", default=None,
+                   help="Comma-separated tags; empty string forces empty list")
+    p.add_argument("--image", metavar="IMAGE", default=None,
+                   help="Cover image path; empty string forces no image")
+    p.add_argument("--description", metavar="DESCRIPTION", default=None,
+                   help="Post description; empty string forces no auto-extraction")
+    p.add_argument("--date", metavar="DATE", default=None, type=_parse_date,
+                   help="Publish date (YYYY-MM-DD, YYYY-MM-DD HH:MM, or YYYY-MM-DD HH:MM:SS)")
+    p.add_argument("--src", metavar="SRC", default="_drafts",
+                   help="Source drafts directory (default: _drafts)")
+    p.add_argument("--dry-run", action="store_true",
+                   help="Print planned actions without writing any files")
+    p.add_argument("--force", action="store_true",
+                   help="Overwrite existing post without prompting")
+    p.add_argument("--verbose", action="store_true",
+                   help="Enable verbose logging")
+    p.add_argument("--list", action="store_true",
+                   help="List all drafts in the source directory and exit")
+    return p
+
+
+def list_drafts(src_dir: Path) -> None:
+    """Print all .md files in src_dir to stdout, sorted alphabetically."""
+    files = sorted(
+        p.name
+        for p in src_dir.iterdir()
+        if p.suffix == ".md" and p.name != ".gitkeep"
+    )
+    for name in files:
+        print(name)
+
+
+def parse_args(argv: list[str]) -> Optional["PublishContext"]:
+    """Parse CLI arguments and return a PublishContext.
+
+    Returns None if --list mode was handled (caller should return 0).
+    Raises InvalidSlugError for invalid slug patterns.
+    Raises SystemExit(2) for missing required arguments (argparse default behavior).
+    """
+    parser = _build_argument_parser()
+    ns = parser.parse_args(argv)
+
+    # Resolve src_dir to absolute path relative to cwd
+    src_dir = Path(ns.src).resolve()
+
+    # --list mode: print drafts and return None to signal early exit
+    if ns.list:
+        list_drafts(src_dir)
+        return None
+
+    # Validate required args manually (so --list does not require --file/--slug)
+    missing = []
+    if ns.file is None:
+        missing.append("--file")
+    if ns.slug is None:
+        missing.append("--slug")
+    if missing:
+        parser.error(f"the following arguments are required: {', '.join(missing)}")
+
+    # Validate slug pattern
+    if not _SLUG_PATTERN.match(ns.slug):
+        raise InvalidSlugError(
+            f"invalid slug '{ns.slug}' (pattern: {_SLUG_PATTERN.pattern})",
+            suggestion="use lowercase letters, digits, and dashes only",
+        )
+
+    # Resolve draft_file
+    raw_file = ns.file
+    if not raw_file.endswith(".md"):
+        raw_file = raw_file + ".md"
+    file_path = Path(raw_file)
+    if file_path.is_absolute():
+        draft_file = file_path
+    else:
+        draft_file = (src_dir / file_path).resolve()
+
+    # Parse list-type args: None when not provided, list when provided (even if empty)
+    def _parse_list_arg(val: Optional[str]) -> Optional[list[str]]:
+        if val is None:
+            return None
+        return parse_list(val)
+
+    return PublishContext(
+        draft_file=draft_file,
+        slug=ns.slug,
+        src_dir=src_dir,
+        cli_categories=_parse_list_arg(ns.categories),
+        cli_tags=_parse_list_arg(ns.tags),
+        cli_image=ns.image,
+        cli_description=ns.description,
+        cli_date=ns.date,
+        dry_run=ns.dry_run,
+        force=ns.force,
+        verbose=ns.verbose,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Pipeline entry point
+# ---------------------------------------------------------------------------
+
+
+def run(argv: list[str]) -> int:
+    """Script entry point. Catches PublishError and converts to exit code."""
+    try:
+        ctx = parse_args(argv)
+        if ctx is None:
+            # --list mode already handled
+            return 0
+        # Subsequent pipeline steps (load_config, load_draft, ...) added in later steps.
+        return 0
+    except PublishError as e:
+        print(f"error: {e}", file=sys.stderr)
+        return e.exit_code
+    except SystemExit:
+        raise  # let argparse --help and error exits propagate normally
+
+
 if __name__ == "__main__":
-    raise SystemExit("publish.py: not yet implemented (Step 1)")
+    sys.exit(run(sys.argv[1:]))

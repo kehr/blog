@@ -1,4 +1,7 @@
-"""Tests for publish.py - Step 1: config and error types."""
+"""Tests for publish.py - Step 1: config and error types. Step 2: CLI and context."""
+import sys
+from datetime import datetime
+from io import StringIO
 from pathlib import Path
 
 import pytest
@@ -11,8 +14,12 @@ from publish import (
     ImageSourceMissingError,
     InvalidSlugError,
     PublishConfig,
+    PublishContext,
     PublishError,
     TargetPostExistsError,
+    parse_args,
+    parse_list,
+    run,
 )
 
 # Path to the real config used by the blog
@@ -195,3 +202,304 @@ class TestPublishErrorIncludesSuggestion:
     def test_exit_code_attribute(self):
         e = ConfigParseError("err")
         assert e.exit_code == 1
+
+
+# ---------------------------------------------------------------------------
+# Step 2: parse_list
+# ---------------------------------------------------------------------------
+
+
+class TestParseList:
+    def test_basic(self):
+        assert parse_list("a, b ,c") == ["a", "b", "c"]
+
+    def test_empty_string(self):
+        assert parse_list("") == []
+
+    def test_single_item(self):
+        assert parse_list("foo") == ["foo"]
+
+    def test_strips_whitespace(self):
+        assert parse_list("  x , y  ") == ["x", "y"]
+
+    def test_trailing_comma(self):
+        # trailing comma produces no extra empty item
+        assert parse_list("a,b,") == ["a", "b"]
+
+
+# ---------------------------------------------------------------------------
+# Step 2: parse_args
+# ---------------------------------------------------------------------------
+
+
+class TestParseArgsBasic:
+    """test_parse_args_basic: --file foo --slug bar parses ctx fields correctly."""
+
+    def test_draft_file_resolved(self, tmp_path: Path):
+        ctx = parse_args(["--file", "foo", "--slug", "bar", "--src", str(tmp_path)])
+        assert ctx.draft_file == tmp_path / "foo.md"
+
+    def test_slug_set(self, tmp_path: Path):
+        ctx = parse_args(["--file", "foo", "--slug", "bar", "--src", str(tmp_path)])
+        assert ctx.slug == "bar"
+
+    def test_src_dir_set(self, tmp_path: Path):
+        ctx = parse_args(["--file", "foo", "--slug", "bar", "--src", str(tmp_path)])
+        assert ctx.src_dir == tmp_path
+
+    def test_dry_run_default_false(self, tmp_path: Path):
+        ctx = parse_args(["--file", "foo", "--slug", "bar", "--src", str(tmp_path)])
+        assert ctx.dry_run is False
+
+    def test_dry_run_flag(self, tmp_path: Path):
+        ctx = parse_args(["--file", "foo", "--slug", "bar", "--src", str(tmp_path), "--dry-run"])
+        assert ctx.dry_run is True
+
+    def test_force_default_false(self, tmp_path: Path):
+        ctx = parse_args(["--file", "foo", "--slug", "bar", "--src", str(tmp_path)])
+        assert ctx.force is False
+
+    def test_force_flag(self, tmp_path: Path):
+        ctx = parse_args(["--file", "foo", "--slug", "bar", "--src", str(tmp_path), "--force"])
+        assert ctx.force is True
+
+    def test_verbose_default_false(self, tmp_path: Path):
+        ctx = parse_args(["--file", "foo", "--slug", "bar", "--src", str(tmp_path)])
+        assert ctx.verbose is False
+
+    def test_config_defaults_to_none(self, tmp_path: Path):
+        ctx = parse_args(["--file", "foo", "--slug", "bar", "--src", str(tmp_path)])
+        assert ctx.config is None
+
+
+class TestParseArgsMissingRequiredArgs:
+    """test_parse_args_missing_file_or_slug: missing required arg exits with SystemExit(2)."""
+
+    def test_missing_file_raises_system_exit(self, tmp_path: Path):
+        with pytest.raises(SystemExit) as exc_info:
+            parse_args(["--slug", "bar", "--src", str(tmp_path)])
+        assert exc_info.value.code == 2
+
+    def test_missing_slug_raises_system_exit(self, tmp_path: Path):
+        with pytest.raises(SystemExit) as exc_info:
+            parse_args(["--file", "foo", "--src", str(tmp_path)])
+        assert exc_info.value.code == 2
+
+    def test_missing_both_raises_system_exit(self, tmp_path: Path):
+        with pytest.raises(SystemExit) as exc_info:
+            parse_args([])
+        assert exc_info.value.code == 2
+
+
+class TestParseArgsSlugValidation:
+    """Slug validation raises InvalidSlugError for invalid patterns."""
+
+    def test_slug_invalid_uppercase(self, tmp_path: Path):
+        with pytest.raises(InvalidSlugError):
+            parse_args(["--file", "foo", "--slug", "Bad", "--src", str(tmp_path)])
+
+    def test_slug_invalid_mixed_case(self, tmp_path: Path):
+        with pytest.raises(InvalidSlugError):
+            parse_args(["--file", "foo", "--slug", "Bad-Slug", "--src", str(tmp_path)])
+
+    def test_slug_invalid_chinese(self, tmp_path: Path):
+        with pytest.raises(InvalidSlugError):
+            parse_args(["--file", "foo", "--slug", "中文", "--src", str(tmp_path)])
+
+    def test_slug_invalid_underscore(self, tmp_path: Path):
+        with pytest.raises(InvalidSlugError):
+            parse_args(["--file", "foo", "--slug", "a_b", "--src", str(tmp_path)])
+
+    def test_slug_invalid_starts_with_dash(self, tmp_path: Path):
+        # argparse treats "-abc" as an option flag, so it exits with SystemExit(2)
+        # before reaching slug validation. Both InvalidSlugError and SystemExit are
+        # acceptable ways to reject a dash-leading slug.
+        with pytest.raises((InvalidSlugError, SystemExit)):
+            parse_args(["--file", "foo", "--slug", "-abc", "--src", str(tmp_path)])
+
+    def test_slug_valid_lowercase_digits_dashes(self, tmp_path: Path):
+        ctx = parse_args(["--file", "foo", "--slug", "my-post-01", "--src", str(tmp_path)])
+        assert ctx.slug == "my-post-01"
+
+    def test_slug_invalid_contains_suggestion(self, tmp_path: Path):
+        with pytest.raises(InvalidSlugError) as exc_info:
+            parse_args(["--file", "foo", "--slug", "BadSlug", "--src", str(tmp_path)])
+        assert "suggestion" in str(exc_info.value).lower()
+
+
+class TestParseArgsCategoriesTags:
+    """Categories and tags: None when unspecified, [] when explicit empty, list when provided."""
+
+    def test_categories_unspecified_is_none(self, tmp_path: Path):
+        ctx = parse_args(["--file", "foo", "--slug", "bar", "--src", str(tmp_path)])
+        assert ctx.cli_categories is None
+
+    def test_categories_explicit_empty_is_list(self, tmp_path: Path):
+        ctx = parse_args(["--file", "foo", "--slug", "bar", "--src", str(tmp_path),
+                          "--categories", ""])
+        assert ctx.cli_categories == []
+
+    def test_categories_parsed_as_list(self, tmp_path: Path):
+        ctx = parse_args(["--file", "foo", "--slug", "bar", "--src", str(tmp_path),
+                          "--categories", "a,b ,c"])
+        assert ctx.cli_categories == ["a", "b", "c"]
+
+    def test_tags_unspecified_is_none(self, tmp_path: Path):
+        ctx = parse_args(["--file", "foo", "--slug", "bar", "--src", str(tmp_path)])
+        assert ctx.cli_tags is None
+
+    def test_tags_explicit_empty_is_list(self, tmp_path: Path):
+        ctx = parse_args(["--file", "foo", "--slug", "bar", "--src", str(tmp_path),
+                          "--tags", ""])
+        assert ctx.cli_tags == []
+
+    def test_tags_parsed_as_list(self, tmp_path: Path):
+        ctx = parse_args(["--file", "foo", "--slug", "bar", "--src", str(tmp_path),
+                          "--tags", "x,y"])
+        assert ctx.cli_tags == ["x", "y"]
+
+
+class TestParseArgsFileResolution:
+    """File path resolution: auto-append .md, relative -> src_dir, absolute -> direct."""
+
+    def test_file_without_md_suffix(self, tmp_path: Path):
+        ctx = parse_args(["--file", "foo", "--slug", "bar", "--src", str(tmp_path)])
+        assert ctx.draft_file.name == "foo.md"
+
+    def test_file_with_md_suffix(self, tmp_path: Path):
+        ctx = parse_args(["--file", "foo.md", "--slug", "bar", "--src", str(tmp_path)])
+        assert ctx.draft_file.name == "foo.md"
+
+    def test_file_chinese_name(self, tmp_path: Path):
+        ctx = parse_args(["--file", "如何设计", "--slug", "bar", "--src", str(tmp_path)])
+        assert ctx.draft_file.name == "如何设计.md"
+
+    def test_file_absolute_path_used_directly(self, tmp_path: Path):
+        abs_path = tmp_path / "other" / "draft.md"
+        ctx = parse_args(["--file", str(abs_path), "--slug", "bar", "--src", str(tmp_path)])
+        assert ctx.draft_file == abs_path
+
+    def test_file_in_src_dir(self, tmp_path: Path):
+        ctx = parse_args(["--file", "foo", "--slug", "bar", "--src", str(tmp_path)])
+        assert ctx.draft_file.parent == tmp_path
+        assert ctx.draft_file.is_absolute()
+
+
+class TestParseArgsDateFormats:
+    """--date accepts YYYY-MM-DD, YYYY-MM-DD HH:MM, YYYY-MM-DD HH:MM:SS."""
+
+    def test_date_only(self, tmp_path: Path):
+        ctx = parse_args(["--file", "foo", "--slug", "bar", "--src", str(tmp_path),
+                          "--date", "2026-04-26"])
+        assert isinstance(ctx.cli_date, datetime)
+        assert ctx.cli_date.tzinfo is not None
+        assert ctx.cli_date.year == 2026
+        assert ctx.cli_date.month == 4
+        assert ctx.cli_date.day == 26
+
+    def test_date_with_time(self, tmp_path: Path):
+        ctx = parse_args(["--file", "foo", "--slug", "bar", "--src", str(tmp_path),
+                          "--date", "2026-04-26 14:00"])
+        assert isinstance(ctx.cli_date, datetime)
+        assert ctx.cli_date.hour == 14
+        assert ctx.cli_date.minute == 0
+        assert ctx.cli_date.tzinfo is not None
+
+    def test_date_with_seconds(self, tmp_path: Path):
+        ctx = parse_args(["--file", "foo", "--slug", "bar", "--src", str(tmp_path),
+                          "--date", "2026-04-26 14:00:30"])
+        assert isinstance(ctx.cli_date, datetime)
+        assert ctx.cli_date.second == 30
+        assert ctx.cli_date.tzinfo is not None
+
+    def test_date_unspecified_is_none(self, tmp_path: Path):
+        ctx = parse_args(["--file", "foo", "--slug", "bar", "--src", str(tmp_path)])
+        assert ctx.cli_date is None
+
+
+class TestParseArgsImageDescription:
+    """--image and --description: None when unspecified, str (possibly empty) when provided."""
+
+    def test_image_unspecified_is_none(self, tmp_path: Path):
+        ctx = parse_args(["--file", "foo", "--slug", "bar", "--src", str(tmp_path)])
+        assert ctx.cli_image is None
+
+    def test_image_explicit_empty(self, tmp_path: Path):
+        ctx = parse_args(["--file", "foo", "--slug", "bar", "--src", str(tmp_path),
+                          "--image", ""])
+        assert ctx.cli_image == ""
+
+    def test_image_value(self, tmp_path: Path):
+        ctx = parse_args(["--file", "foo", "--slug", "bar", "--src", str(tmp_path),
+                          "--image", "/assets/img/cover.jpg"])
+        assert ctx.cli_image == "/assets/img/cover.jpg"
+
+    def test_description_unspecified_is_none(self, tmp_path: Path):
+        ctx = parse_args(["--file", "foo", "--slug", "bar", "--src", str(tmp_path)])
+        assert ctx.cli_description is None
+
+    def test_description_explicit_empty(self, tmp_path: Path):
+        ctx = parse_args(["--file", "foo", "--slug", "bar", "--src", str(tmp_path),
+                          "--description", ""])
+        assert ctx.cli_description == ""
+
+
+# ---------------------------------------------------------------------------
+# Step 2: list_drafts and --list mode via run()
+# ---------------------------------------------------------------------------
+
+
+class TestRunListMode:
+    """test_run_list_mode: --list prints .md filenames sorted, excludes .gitkeep."""
+
+    def test_run_list_exits_zero(self, tmp_path: Path):
+        tmp_drafts = tmp_path / "_drafts"
+        tmp_drafts.mkdir()
+        (tmp_drafts / "a.md").write_text("content", encoding="utf-8")
+        ret = run(["--list", "--src", str(tmp_drafts)])
+        assert ret == 0
+
+    def test_run_list_prints_md_files(self, tmp_path: Path, capsys):
+        tmp_drafts = tmp_path / "_drafts"
+        tmp_drafts.mkdir()
+        (tmp_drafts / "a.md").write_text("content", encoding="utf-8")
+        (tmp_drafts / "中文.md").write_text("内容", encoding="utf-8")
+        (tmp_drafts / ".gitkeep").write_text("", encoding="utf-8")
+        run(["--list", "--src", str(tmp_drafts)])
+        captured = capsys.readouterr()
+        assert "a.md" in captured.out
+        assert "中文.md" in captured.out
+        assert ".gitkeep" not in captured.out
+
+    def test_run_list_sorted(self, tmp_path: Path, capsys):
+        tmp_drafts = tmp_path / "_drafts"
+        tmp_drafts.mkdir()
+        (tmp_drafts / "z.md").write_text("z", encoding="utf-8")
+        (tmp_drafts / "a.md").write_text("a", encoding="utf-8")
+        run(["--list", "--src", str(tmp_drafts)])
+        captured = capsys.readouterr()
+        lines = [l for l in captured.out.splitlines() if l.strip()]
+        assert lines == sorted(lines)
+
+
+class TestRunPropagatesPublishError:
+    """test_run_propagates_publish_error: PublishError causes run() to return non-zero."""
+
+    def test_invalid_slug_returns_nonzero(self, tmp_path: Path):
+        ret = run(["--file", "foo", "--slug", "BadSlug", "--src", str(tmp_path)])
+        assert ret != 0
+
+    def test_invalid_slug_stderr_message(self, tmp_path: Path, capsys):
+        run(["--file", "foo", "--slug", "BadSlug", "--src", str(tmp_path)])
+        captured = capsys.readouterr()
+        assert "error" in captured.err.lower() or "BadSlug" in captured.err or "slug" in captured.err.lower()
+
+    def test_publish_error_exit_code(self, tmp_path: Path, monkeypatch):
+        from publish import InvalidSlugError
+
+        def fake_parse_args(argv):
+            raise InvalidSlugError("bad slug", suggestion="use lowercase")
+
+        monkeypatch.setattr("publish.parse_args", fake_parse_args)
+        ret = run(["--file", "foo", "--slug", "ok", "--src", str(tmp_path)])
+        assert ret == 1
