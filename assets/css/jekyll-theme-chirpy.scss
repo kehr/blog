@@ -13,17 +13,13 @@
    Order: font stack -> sizing/rhythm -> headings -> meta -> TOC -> misc
    ------------------------------------------------------------------ */
 
-/* Chinese-first system font stack (kept short to favor host-installed faces) */
+/* Chinese-first system font stack tuned for cross-platform reading.
+   Latin glyphs come from -apple-system / Helvetica Neue / Segoe UI before any CJK face,
+   so English/numbers in mixed text stay tight while Chinese falls through to PingFang etc. */
 $cn-font-stack:
-  -apple-system,
-  BlinkMacSystemFont,
-  'PingFang SC',
-  'HarmonyOS Sans SC',
-  'Source Han Sans SC',
-  'Noto Sans CJK SC',
-  'Microsoft YaHei',
-  'Source Sans Pro',
-  sans-serif;
+  -apple-system, BlinkMacSystemFont, "Helvetica Neue", "Segoe UI", "Inter", "PingFang SC", "Hiragino Sans GB",
+  "Microsoft YaHei UI", "Microsoft YaHei", "HarmonyOS Sans SC", "Source Han Sans SC", "Noto Sans CJK SC",
+  "Source Sans Pro", sans-serif;
 
 body,
 main,
@@ -32,57 +28,293 @@ main,
 #topbar,
 #panel-wrapper {
   font-family: $cn-font-stack;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Wide-screen content scaling.
+   At xl+ (>=1200px) the container grows fluidly with the viewport, capped
+   at 1600px, so list / post / tab pages all benefit from extra horizontal
+   space without blowing past comfortable Chinese line lengths.
+   Sidebar reserves 260px (300px at xxxl) so the container fills the rest. */
+@media (min-width: 1200px) {
+  #main-wrapper > .container {
+    max-width: min(100vw - 260px, 1600px);
+  }
+}
+
+@media (min-width: 1650px) {
+  #main-wrapper > .container {
+    max-width: min(100vw - 300px, 1600px);
+  }
+}
+
+/* Empty right panel collapse: when no panel <section> renders (TOC, Recently
+   Updated, Trending Tags all off / hidden) OR the user collapsed the TOC,
+   hide the empty column and center main at the default 75% width so the
+   page doesn't look lopsided. */
+@media (min-width: 1200px) {
+  #main-wrapper > .container > .row:not(:has(#panel-wrapper section)),
+  html[data-toc-collapsed] #main-wrapper > .container > .row {
+    justify-content: center;
+
+    aside#panel-wrapper {
+      display: none;
+    }
+  }
+}
+
+/* List pages (home, archives, categories, tags, individual category/tag):
+   the col-xl-9 (75%) cap is tuned for article prose. For item lists it leaves
+   too much dead space on wide viewports. Expand main to fill the container so
+   the list breathes; the inner grid (date column + content + optional cover)
+   keeps the layout balanced. */
+@media (min-width: 1200px) {
+  #main-wrapper > .container > .row:has(#post-list),
+  #main-wrapper > .container > .row:has(#archives),
+  #main-wrapper > .container > .row:has(#page-category),
+  #main-wrapper > .container > .row:has(#page-tag) {
+    main {
+      flex: 0 0 auto;
+      width: 100%;
+      max-width: 100%;
+    }
+  }
+}
+
+/* TOC collapse / expand affordance.
+   - Borderless xmark button (#toc-collapse-trigger) inside the TOC header
+     fades the TOC out, then hides the panel column to recenter main.
+   - A fixed-position pill (#toc-expand-trigger), injected by toc.html into
+     <body> on DOMContentLoaded, restores the panel. State persists in
+     localStorage and is mirrored to <html data-toc-collapsed>; the
+     transitional class `toc-fading-out` is added briefly while the TOC fades
+     so the layout snap happens AFTER the fade completes (not during it). */
+#toc-wrapper {
+  /* Drive the fade from the wrapper so layout snap is decoupled. */
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+
+  .toc-header {
+    margin-bottom: 0.25rem;
+  }
+
+  #toc-collapse-trigger {
+    color: var(--text-muted-color);
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    padding: 0.2rem 0.4rem !important;
+    line-height: 1;
+    font-size: 0.875rem;
+    opacity: 0.55;
+    transition:
+      opacity 0.15s ease,
+      color 0.15s ease;
+
+    &:hover {
+      opacity: 1;
+      color: var(--text-color);
+    }
+
+    &:focus {
+      outline: 0;
+      box-shadow: none !important;
+    }
+
+    &:focus-visible {
+      opacity: 1;
+      color: var(--text-color);
+      outline: 2px solid var(--main-border-color);
+      outline-offset: 2px;
+      border-radius: 4px;
+    }
+
+    i {
+      vertical-align: middle;
+    }
+  }
+}
+
+/* TOC fading-out transitional state: triggered by JS just before the layout
+   collapses, so the user sees the TOC dissolve and only then sees the article
+   recenter (instead of a hard pop). */
+html.toc-fading-out #toc-wrapper {
+  opacity: 0;
+  transform: translateX(8px);
+  pointer-events: none;
+}
+
+#toc-expand-trigger {
+  position: fixed;
+  top: 4.25rem;
+  right: 1.5rem;
+  z-index: 1030;
+  width: 2.25rem;
+  height: 2.25rem;
+  /* Always rendered as flex; visibility/opacity drive show-hide so transitions
+     can play (display:none breaks transitions). */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--card-bg);
+  border: 1px solid var(--main-border-color);
+  border-radius: 999px;
+  color: var(--text-muted-color);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+  /* Hidden default state. The visibility transition is delayed past the
+     opacity tween so the element actually disappears after fading out. */
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(10px) scale(0.92);
+  pointer-events: none;
+  transition:
+    opacity 0.22s ease,
+    transform 0.22s ease,
+    color 0.15s ease,
+    border-color 0.15s ease,
+    visibility 0s linear 0.22s;
+
+  i {
+    font-size: 0.8125rem;
+    line-height: 1;
+  }
+
+  &:hover,
+  &:focus-visible {
+    color: var(--text-color);
+    border-color: var(--text-color);
+  }
+
+  &:focus {
+    outline: 0;
+  }
+}
+
+html[data-toc-collapsed] #toc-expand-trigger {
+  opacity: 1;
+  visibility: visible;
+  transform: translateX(0) scale(1);
+  pointer-events: auto;
+  /* Wait for the TOC fade-out + layout snap (~180ms) before fading the pill in. */
+  transition:
+    opacity 0.22s ease 0.05s,
+    transform 0.22s ease 0.05s,
+    color 0.15s ease,
+    border-color 0.15s ease,
+    visibility 0s linear 0s;
+}
+
+/* Hide on small screens where TOC is not shown anyway */
+@media (max-width: 1199.98px) {
+  #toc-expand-trigger {
+    display: none !important;
+  }
 }
 
 /* Body rhythm: wider line, taller leading, generous paragraph gap */
-#main-wrapper > .container {
-  max-width: 1180px;
-}
-
 main {
-  font-size: 1.0625rem;
-  line-height: 1.75;
+  font-size: 0.9375rem;
+  line-height: 1.8;
+  letter-spacing: 0.015em;
+  font-weight: 400;
   text-spacing-trim: trim-start;
   hanging-punctuation: first allow-end last;
+  font-feature-settings: "kern", "palt";
 }
 
 main p {
-  margin-block: 1.1em;
+  margin-block: 1em;
 }
 
-/* Section rhythm: clearer hierarchy between H2 chapters */
-main h2 {
-  margin-top: 2.5rem;
-  margin-bottom: 0.9rem;
-}
-
-/* Heading scale: enlarge H1, tighten letter-spacing for Chinese display */
-header h1[data-toc-skip] {
-  font-size: 2.1rem;
-  font-weight: 600;
-  letter-spacing: -0.01em;
-  line-height: 1.35;
-}
-
-/* Description: caption-style summary, slimmer than body, with left rule */
-header .post-desc {
+/* Content wrapper: chirpy bumps `.content` to 1.08rem; reset to 1rem so the
+   article body matches the site-wide 15/16px scale instead of standing out. */
+.content {
   font-size: 1rem;
-  font-weight: 400;
+}
+
+/* Heading scale: tightened for Chinese display, harmonized with body 15px */
+main h2 {
+  font-size: 1.25rem;
+  margin-top: 2.25rem;
+  margin-bottom: 0.8rem;
+  font-weight: 600;
+}
+
+main h3 {
+  font-size: 1.0625rem;
+  margin-top: 1.75rem;
+  margin-bottom: 0.6rem;
+  font-weight: 600;
+}
+
+main h4 {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+main h5,
+main h6 {
+  font-size: 0.9375rem;
+  font-weight: 600;
+}
+
+/* Post header: title + description + meta */
+header h1[data-toc-skip] {
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  line-height: 1.4;
+}
+
+header .post-desc {
+  font-size: 0.927rem;
+  // font-weight: 400;
   line-height: 1.65;
   opacity: 0.7;
   margin-bottom: 1.25rem !important;
   background-color: var(--sidebar-bg);
-  padding: 0.75rem 1rem;
+  padding: 0.65rem 0.9rem;
   border-radius: 0.25rem;
 }
 
-/* Post meta line: smaller and softer; main info left, read-time right */
+/* Single meta row: author + date(s) on the left, read time right-aligned. */
 header .post-meta {
-  font-size: 0.85rem;
+  font-size: 0.8125rem;
   font-weight: 400;
-  opacity: 0.65;
   margin-bottom: 1.1rem;
-  column-gap: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: baseline;
+  column-gap: 1rem;
+  row-gap: 0.25rem;
+
+  .post-meta-left {
+    display: inline-flex;
+    flex-wrap: wrap;
+    column-gap: 1.25rem;
+  }
+
+  .post-meta-right {
+    display: inline-flex;
+    flex-wrap: wrap;
+    column-gap: 1.25rem;
+    margin-left: auto;
+  }
+
+  span {
+    opacity: 0.65;
+  }
+
+  /* Suppress chirpy's bullet separator between adjacent spans; spacing comes
+     from the inline-flex column-gap on .post-meta-left / .post-meta-right. */
+  span + span::before {
+    content: none;
+    padding: 0;
+  }
 }
 
 /* Hover reveal: last-modified date appears inline right after the published date. */
@@ -105,7 +337,7 @@ header .post-meta-posted.has-lastmod {
   }
 }
 
-/* TOC: two-line clamp instead of single-line ellipsis */
+/* TOC: two-line clamp + smaller font matched to panel scale */
 #toc-wrapper ul .toc-link,
 #toc-popup-content .toc-link {
   display: -webkit-box;
@@ -115,9 +347,10 @@ header .post-meta-posted.has-lastmod {
   overflow: hidden;
   white-space: normal;
   text-overflow: clip;
-  line-height: 1.45;
-  padding-top: 0.35rem;
-  padding-bottom: 0.35rem;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  padding-top: 0.3rem;
+  padding-bottom: 0.3rem;
 }
 
 /* Heading anchor: hide on touch-only devices (chirpy only hides on hover devices) */
@@ -130,6 +363,295 @@ header .post-meta-posted.has-lastmod {
 /* Chinese-English auto spacing where the browser supports it (Chrome 119+, Safari 18+) */
 main {
   text-autospace: ideograph-alpha ideograph-numeric;
+}
+
+/* Sidebar typography: shrink to harmonize with article-list scale.
+   Default chirpy sizes are tuned for English headlines and feel oversized
+   alongside the new 17px / 14px list rhythm. */
+#sidebar {
+  border-right: none;
+  .site-title {
+    font-size: 1.35rem;
+    font-weight: 700;
+    letter-spacing: 0;
+  }
+
+  .site-subtitle {
+    font-size: 0.8125rem;
+    line-height: 1.5;
+  }
+
+  ul li.nav-item a.nav-link {
+    span {
+      font-size: 0.8125rem;
+      letter-spacing: 0.02em;
+      font-weight: 500;
+    }
+
+    /* Tab icons: outline style (far), faded down, tucked closer to label */
+    i {
+      font-size: 0.875rem;
+      opacity: 0.55;
+      margin-right: 0.55rem !important;
+    }
+  }
+
+  ul li.nav-item.active a.nav-link i {
+    opacity: 0.85;
+  }
+}
+
+/* Topbar title (mobile + sticky bar): align with sidebar nav scale */
+#topbar-title {
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+/* Breadcrumb: secondary navigation, match panel/footer 13px tier.
+   Selector matches chirpy's `#topbar #breadcrumb` specificity. */
+#topbar #breadcrumb {
+  font-size: 0.8125rem;
+}
+
+/* Post tail (Apple-style editorial close): "Filed in" inline meta -> hairline ->
+   related-list -> hairline -> share + license one row. Lives inside <article>
+   so width tracks the body column (no col-jump between TOC and no-TOC pages).
+
+   Scale system:
+     - section label: 11px / SemiBold / UPPERCASE / tracking 0.08em / muted color
+     - item title:    17px / SemiBold / primary color
+     - item meta:     13px / Regular / muted color
+   Hierarchy comes from weight + color, not box-fill. */
+.post-tail-wrapper {
+  font-size: 0.8125rem;
+  margin-top: 3rem;
+  border-bottom: none;
+
+  .post-meta,
+  .post-tag,
+  .license-wrapper,
+  .share-label {
+    font-size: 0.8125rem;
+  }
+
+  /* Filed-in metadata: inline single line, no chips, no fill. */
+  .post-taxonomy {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 0.35rem;
+    padding-bottom: 1.75rem;
+    border-bottom: 1px solid var(--main-border-color);
+    color: var(--text-muted-color);
+    font-size: 0.8125rem;
+    line-height: 1.6;
+
+    .taxonomy-label {
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 0.6875rem;
+      font-weight: 600;
+      color: var(--text-muted-color);
+      margin-right: 0.4rem;
+    }
+
+    a {
+      display: inline;
+      color: var(--text-color);
+      transition: color 0.18s ease;
+
+      &:hover {
+        color: var(--link-color, #0066cc);
+      }
+    }
+
+    .post-category,
+    .post-tag {
+      padding: 0;
+      border: 0;
+      background: transparent;
+      border-radius: 0;
+      font-size: 0.8125rem;
+      line-height: 1.6;
+      margin: 0;
+    }
+
+    .taxonomy-sep {
+      color: var(--main-border-color);
+      margin: 0 0.05rem;
+      user-select: none;
+    }
+  }
+
+  /* Related list: vertical list, no card border, generous whitespace. */
+  .related-list {
+    padding-top: 2rem;
+    padding-bottom: 2rem;
+    border-bottom: 1px solid var(--main-border-color);
+
+    .related-list-label {
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 0.6875rem;
+      font-weight: 600;
+      color: var(--text-muted-color);
+      margin: 0 0 1.5rem;
+      padding: 0;
+    }
+
+    .related-list-items {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .related-list-item {
+      padding: 0;
+      margin: 0;
+
+      & + .related-list-item {
+        margin-top: 1.5rem;
+      }
+    }
+
+    /* Default: items at full strength (Apple editorial pattern - recommendations
+       are content, not chrome). Hover affordance is the title shifting to the
+       system link color; no background fill, no dimming. */
+    .related-list-link {
+      display: block;
+      padding: 0.25rem 0;
+      color: inherit;
+      transition: color 0.18s ease;
+
+      &:hover .related-list-title {
+        color: var(--link-color);
+      }
+    }
+
+    .related-list-title {
+      font-size: 1.0625rem;
+      font-weight: 600;
+      line-height: 1.45;
+      color: var(--text-color);
+      margin: 0 0 0.25rem;
+    }
+
+    .related-list-meta {
+      font-size: 0.8125rem;
+      color: var(--text-muted-color);
+      margin-bottom: 0.35rem;
+      line-height: 1.5;
+
+      > * {
+        display: inline;
+      }
+
+      .related-list-meta-sep {
+        margin: 0 0.5rem;
+        color: var(--main-border-color);
+        user-select: none;
+      }
+
+      /* read-time include wraps the number+unit in <em>; neutralize italics
+         and tooltip border so it sits flush in the meta strip. */
+      .readtime {
+        em {
+          font-style: normal;
+          font-weight: inherit;
+          color: inherit;
+        }
+      }
+    }
+
+    .related-list-summary {
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      font-size: 0.875rem;
+      line-height: 1.65;
+      color: var(--text-muted-color);
+      margin: 0;
+    }
+  }
+
+  /* Bottom row: share on the left, license on the right. Balanced single line. */
+  .post-tail-bottom {
+    margin-top: 1.5rem;
+    padding-bottom: 0.5rem;
+    flex-wrap: wrap;
+    gap: 0.75rem 1rem;
+
+    .license-wrapper {
+      color: var(--text-muted-color);
+      line-height: 1.6;
+    }
+  }
+}
+
+/* Hide the inline post-sharing label since the icon group is self-explanatory in
+   a tight footer row. (Keep the <span> in DOM for screen-reader context.) */
+.post-tail-wrapper .share-wrapper .share-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Footer: smallest legibility tier, snap to 13px instead of chirpy's 12.8px */
+footer {
+  font-size: 0.8125rem;
+}
+
+/* Page title shared by archives / categories / tags / about pages.
+   Default chirpy h1 is 2rem (32px); pull down to match post H1 scale (24px). */
+h1.dynamic-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  line-height: 1.4;
+}
+
+/* Archives timeline: chirpy uses .year=1.5rem, list=1.1rem, day=85%.
+   Pull every tier down one notch so it lines up with the 13/14/16/18 scale. */
+#archives {
+  .year {
+    font-size: 1.125rem;
+    font-weight: 500;
+  }
+
+  ul li {
+    font-size: 1rem;
+  }
+
+  .date.day {
+    font-size: 0.8125rem;
+  }
+}
+
+/* Right panel typography: heading + content + tag scale matched to list text */
+#panel-wrapper {
+  .panel-heading {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+  }
+
+  .access .content {
+    font-size: 0.8125rem;
+    line-height: 1.55;
+  }
+
+  .post-tag {
+    font-size: 0.75rem;
+    line-height: 1rem;
+  }
 }
 
 /* Tabular numbers for dates and read-time so digits align */
@@ -146,6 +668,827 @@ main {
 .mermaid .cluster-label,
 .mermaid text {
   font-family: $cn-font-stack !important;
+}
+
+/* Article list: OpenAI-style two-column layout.
+   Left column: categories (top) + date (bottom).
+   Right column: title + summary.
+   Optional third column: cover thumbnail when site.home_cover is true.
+   Each row has a hairline bottom border that transitions to text color on hover. */
+#post-list {
+  .card-wrapper {
+    border-bottom: 1px solid var(--main-border-color);
+    transition: border-color 0.18s ease;
+
+    /* Reset chirpy card chrome inherited from upstream */
+    margin-bottom: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+
+    &:last-child {
+      /* Keep 1px slot so :hover can colorize it without layout shift */
+      border-bottom-color: transparent;
+    }
+
+    &:hover {
+      border-bottom-color: var(--text-color);
+    }
+  }
+
+  .post-preview {
+    display: grid;
+    grid-template-columns: 11rem minmax(0, 1fr);
+    gap: 2.5rem;
+    padding: 1.5rem 0;
+    align-items: start;
+    color: inherit;
+    text-decoration: none;
+
+    /* Reset chirpy preview chrome (box-shadow, radius, white background, hover overlay) */
+    background: transparent !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+
+    &::before {
+      content: none !important;
+    }
+
+    &:hover {
+      background: transparent !important;
+    }
+  }
+
+  .card-wrapper.has-cover .post-preview {
+    grid-template-columns: 11rem minmax(0, 1fr) 12rem;
+  }
+
+  .post-meta-col {
+    font-size: 0.875rem;
+    line-height: 1.5;
+
+    .post-categories {
+      color: var(--text-color);
+      font-weight: 500;
+      margin-bottom: 0.2rem;
+    }
+
+    .post-date {
+      color: var(--text-muted-color);
+      font-size: 0.8125rem;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .post-pin {
+      color: var(--text-muted-color);
+      font-size: 0.8125rem;
+      margin-top: 0.4rem;
+    }
+  }
+
+  .post-body-col {
+    min-width: 0;
+
+    .post-title {
+      font-size: 1.0625rem;
+      font-weight: 600;
+      line-height: 1.5;
+      letter-spacing: 0.005em;
+      color: var(--text-color);
+      margin: 0 0 0.4rem;
+    }
+
+    .post-summary {
+      color: var(--text-muted-color);
+      font-size: 0.875rem;
+      line-height: 1.6;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+  }
+
+  .post-image-col {
+    img {
+      width: 100%;
+      aspect-ratio: 16 / 10;
+      object-fit: cover;
+      background: var(--img-bg);
+      border-radius: 0 !important;
+    }
+  }
+}
+
+@media (max-width: 768px) {
+  #post-list {
+    .post-preview,
+    .card-wrapper.has-cover .post-preview {
+      grid-template-columns: 1fr;
+      gap: 0.55rem;
+      padding: 1.25rem 0;
+    }
+
+    .post-meta-col {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: baseline;
+      font-size: 0.8125rem;
+
+      .post-categories {
+        margin-bottom: 0;
+      }
+    }
+
+    .post-image-col {
+      order: 3;
+
+      img {
+        aspect-ratio: 16 / 9;
+      }
+    }
+  }
+}
+
+/* Search result item shared visuals (used inside the Spotlight overlay).
+   The overlay container styles live further down; these rules cover the
+   per-result presentation that needs to defeat chirpy's two-up grid + blue
+   link defaults regardless of where the list ends up rendered. */
+#search-results {
+  display: block;
+  padding-bottom: 3rem;
+
+  /* Empty-state copy */
+  .search-result-empty {
+    color: var(--text-muted-color);
+    font-size: 0.9375rem;
+    margin-top: 2rem;
+  }
+
+  /* Chirpy's upstream targets `#search-results > article` with a 45% width +
+     last-child:nth-child(odd) horizontal shift to balance its two-up grid.
+     Defeat all of those for our single-column layout (the offsets push the
+     final odd item ~24% off to the left and clip its left edge). */
+  > article.search-result-item {
+    width: 100% !important;
+    margin: 0 !important;
+    position: static !important;
+    right: auto !important;
+    border-bottom: 1px solid var(--main-border-color);
+    transition: border-color 0.18s ease;
+
+    &:nth-child(odd),
+    &:nth-child(even) {
+      margin-left: 0 !important;
+      margin-right: 0 !important;
+    }
+
+    &:last-child:nth-child(odd) {
+      position: static !important;
+      right: auto !important;
+    }
+
+    &:last-child {
+      border-bottom-color: transparent;
+    }
+
+    &:hover {
+      border-bottom-color: var(--text-color);
+    }
+
+    /* Chirpy sets line-height: 2.5rem on `> article h2`. Reset to our scale. */
+    h2 {
+      line-height: 1.5;
+    }
+  }
+
+  .search-result-preview {
+    display: grid;
+    grid-template-columns: 11rem minmax(0, 1fr);
+    gap: 2.5rem;
+    padding: 1.5rem 0;
+    align-items: start;
+    color: inherit;
+    text-decoration: none;
+    border: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    font-size: inherit;
+    line-height: inherit;
+  }
+
+  .search-result-meta {
+    font-size: 0.875rem;
+    line-height: 1.5;
+
+    .search-result-category {
+      color: var(--text-color);
+      font-weight: 500;
+      margin-bottom: 0.2rem;
+
+      &:empty {
+        display: none;
+      }
+    }
+
+    .search-result-date {
+      color: var(--text-muted-color);
+      font-size: 0.8125rem;
+      font-variant-numeric: tabular-nums;
+    }
+  }
+
+  .search-result-body {
+    min-width: 0;
+
+    .search-result-title {
+      font-size: 1.0625rem;
+      font-weight: 600;
+      line-height: 1.5;
+      letter-spacing: 0.005em;
+      color: var(--text-color);
+      margin: 0 0 0.4rem;
+    }
+
+    .search-result-summary {
+      color: var(--text-muted-color);
+      font-size: 0.875rem;
+      line-height: 1.6;
+      margin: 0;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      white-space: normal;
+    }
+  }
+}
+
+@media (max-width: 768px) {
+  #search-results {
+    .search-result-preview {
+      grid-template-columns: 1fr;
+      gap: 0.55rem;
+      padding: 1.25rem 0;
+    }
+
+    .search-result-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: baseline;
+      font-size: 0.8125rem;
+
+      .search-result-category {
+        margin-bottom: 0;
+      }
+    }
+  }
+}
+
+/* Search results: stagger entry animation. Replays on every keystroke since
+   simple-jekyll-search re-renders the list, but the duration is short enough
+   to feel responsive rather than gratuitous. */
+@keyframes search-result-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+#search-results .search-result-item {
+  animation: search-result-in 0.32s cubic-bezier(0.32, 0.72, 0, 1) backwards;
+}
+
+#search-results .search-result-item:nth-child(1) {
+  animation-delay: 0.02s;
+}
+#search-results .search-result-item:nth-child(2) {
+  animation-delay: 0.05s;
+}
+#search-results .search-result-item:nth-child(3) {
+  animation-delay: 0.08s;
+}
+#search-results .search-result-item:nth-child(4) {
+  animation-delay: 0.11s;
+}
+#search-results .search-result-item:nth-child(5) {
+  animation-delay: 0.14s;
+}
+#search-results .search-result-item:nth-child(n + 6) {
+  animation-delay: 0.17s;
+}
+
+/* ------------------------------------------------------------------
+   Spotlight-style search overlay (Apple HIG-flavored).
+   Triggered by the topbar magnifier or Cmd/Ctrl+K. Backdrop blurs the page,
+   a centered window springs in with a layered shadow, results animate with
+   stagger, and an active highlight follows keyboard / hover.
+   ------------------------------------------------------------------ */
+
+/* Topbar launcher: flat icon + ⌘K badge. No borders or shadows; hover uses
+   only a faint background tint to lift it off the topbar. */
+#search-launch.search-launcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 2.25rem;
+  padding: 0 0.5rem 0 0.7rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted-color);
+  cursor: pointer;
+  transition:
+    color 0.18s ease,
+    background-color 0.18s ease,
+    transform 0.18s cubic-bezier(0.32, 0.72, 0, 1);
+
+  i {
+    font-size: 0.875rem;
+  }
+
+  .search-launcher-hint {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.1rem 0.42rem 0.12rem;
+    border-radius: 5px;
+    background: var(--sidebar-bg);
+    color: var(--text-muted-color);
+    font-family: $cn-font-stack;
+    font-size: 0.6875rem;
+    line-height: 1;
+    letter-spacing: 0.02em;
+    opacity: 0.85;
+    transition: background-color 0.18s ease, color 0.18s ease;
+  }
+
+  .search-launcher-mod {
+    font-size: 0.8125rem;
+    margin-right: 0.04rem;
+  }
+
+  &:hover {
+    color: var(--text-color);
+    background-color: var(--sidebar-bg);
+
+    .search-launcher-hint {
+      color: var(--text-color);
+    }
+  }
+
+  &:focus {
+    outline: 0;
+  }
+
+  &:focus-visible {
+    color: var(--text-color);
+    background-color: var(--sidebar-bg);
+  }
+
+  &:active {
+    transform: scale(0.97);
+  }
+}
+
+/* Hide the keyboard hint chip on small screens to keep the trigger compact. */
+@media (max-width: 575.98px) {
+  #search-launch.search-launcher {
+    padding: 0;
+    width: 2.5rem;
+    height: 2.5rem;
+    justify-content: center;
+    border-radius: 999px;
+
+    .search-launcher-hint {
+      display: none;
+    }
+  }
+}
+
+/* Lock body scroll while overlay is open. */
+body.search-overlay-open {
+  overflow: hidden;
+}
+
+/* Overlay shell: full-viewport, layered backdrop + window. */
+.search-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1080;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding-top: 12vh;
+  padding-inline: 1.25rem;
+  pointer-events: none;
+
+  &[hidden] {
+    display: none;
+  }
+}
+
+/* Backdrop: no dark tint -- only a heavy blur + saturation boost so the real
+   page colors come through softened instead of being washed to gray. A very
+   light white wash (8% in light mode, 18% dark wash in dark mode) gives just
+   enough separation to focus attention on the bar without dimming the page.
+   Browsers without backdrop-filter fall back to the wash alone. */
+.search-overlay-backdrop {
+  position: absolute;
+  inset: 0;
+  background-color: rgba(255, 255, 255, 0);
+  -webkit-backdrop-filter: blur(0px) saturate(100%);
+  backdrop-filter: blur(0px) saturate(100%);
+  opacity: 0;
+  pointer-events: auto;
+  transition:
+    opacity 0.24s cubic-bezier(0.32, 0.72, 0, 1),
+    background-color 0.24s cubic-bezier(0.32, 0.72, 0, 1),
+    backdrop-filter 0.32s cubic-bezier(0.32, 0.72, 0, 1),
+    -webkit-backdrop-filter 0.32s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.search-overlay.is-open .search-overlay-backdrop {
+  opacity: 1;
+  background-color: rgba(255, 255, 255, 0.08);
+  -webkit-backdrop-filter: blur(32px) saturate(180%);
+  backdrop-filter: blur(32px) saturate(180%);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .search-overlay.is-open .search-overlay-backdrop {
+    background-color: rgba(255, 255, 255, 0.6);
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .search-overlay.is-open .search-overlay-backdrop {
+    background-color: rgba(15, 15, 20, 0.32);
+  }
+
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .search-overlay.is-open .search-overlay-backdrop {
+      background-color: rgba(15, 15, 20, 0.7);
+    }
+  }
+}
+
+[data-mode='dark'] .search-overlay.is-open .search-overlay-backdrop {
+  background-color: rgba(15, 15, 20, 0.32);
+}
+
+[data-mode='dark'] {
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    .search-overlay.is-open .search-overlay-backdrop {
+      background-color: rgba(15, 15, 20, 0.7);
+    }
+  }
+}
+
+/* Window: a transparent flex stack. The bar and the body render as
+   independent floating cards with their own widths -- bar stays compact and
+   centered, results card spreads wider so titles/summaries get reading-scale
+   real estate. */
+.search-overlay-window {
+  position: relative;
+  width: 100%;
+  max-width: 760px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.7rem;
+  background: transparent;
+  border: 0;
+  pointer-events: auto;
+}
+
+/* Each child card animates in independently for a subtle cascade. */
+.search-overlay-window > .search-overlay-bar,
+.search-overlay-window > .search-overlay-body,
+.search-overlay-window > .search-overlay-empty {
+  opacity: 0;
+  transform: translateY(-12px) scale(0.97);
+  transform-origin: center top;
+  transition:
+    opacity 0.26s cubic-bezier(0.32, 0.72, 0, 1),
+    transform 0.42s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.search-overlay.is-open .search-overlay-window > .search-overlay-bar {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition-delay: 0.04s;
+}
+
+.search-overlay.is-open .search-overlay-window > .search-overlay-body,
+.search-overlay.is-open .search-overlay-window > .search-overlay-empty {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition-delay: 0.1s;
+}
+
+/* Bar: floating frosted-glass card. Translucent fill + own backdrop-filter
+   so the card itself reads as a layer of glass over the blurred page,
+   instead of an opaque white block sitting on top. */
+.search-overlay-bar {
+  width: 100%;
+  max-width: 560px;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 1rem 1.15rem 1rem 1.25rem;
+  background: rgba(255, 255, 255, 0.72);
+  -webkit-backdrop-filter: blur(36px) saturate(180%);
+  backdrop-filter: blur(36px) saturate(180%);
+  border-radius: 14px;
+}
+
+.search-overlay-icon {
+  flex: 0 0 auto;
+  font-size: 1.05rem;
+  color: var(--text-muted-color);
+}
+
+.search-overlay-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  height: 1.6rem;
+  font-family: $cn-font-stack;
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--text-color);
+  caret-color: var(--text-color);
+
+  &:focus {
+    outline: 0;
+    box-shadow: none;
+  }
+
+  &::placeholder {
+    color: var(--text-muted-color);
+    opacity: 0.55;
+  }
+
+  &::-webkit-search-cancel-button {
+    -webkit-appearance: none;
+  }
+}
+
+.search-overlay-esc {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.18rem 0.5rem;
+  border: 0;
+  border-radius: 5px;
+  background: var(--sidebar-bg);
+  color: var(--text-muted-color);
+  font-family: $cn-font-stack;
+  font-size: 0.6875rem;
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* Body: flat results list flowing directly over the blurred page backdrop --
+   no card surface of its own, mirroring the home / list page rhythm. The bar
+   above remains the only chrome surface. Compound selector (#id + .class) is
+   required to outrank chirpy's bundled `#search-result-wrapper { display: none }`
+   rule via ID-level specificity. */
+#search-result-wrapper.search-overlay-body {
+  display: block;
+  max-height: 62vh;
+  overflow-y: auto;
+  padding: 0;
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border: 0;
+  border-radius: 0;
+  scrollbar-width: thin;
+  width: 100%;
+  max-width: 760px;
+  margin: 0;
+
+  &.d-none {
+    display: none;
+  }
+}
+
+/* Empty state: matching frosted-glass hint card below the bar. */
+.search-overlay-empty {
+  width: 100%;
+  max-width: 560px;
+  padding: 1.4rem 1.25rem 1.5rem;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.72);
+  -webkit-backdrop-filter: blur(36px) saturate(180%);
+  backdrop-filter: blur(36px) saturate(180%);
+  border-radius: 14px;
+
+  .search-overlay-empty-title {
+    margin: 0 0 0.6rem;
+    color: var(--text-color);
+    font-size: 0.9375rem;
+    font-weight: 500;
+  }
+
+  .search-overlay-empty-hint {
+    margin: 0;
+    color: var(--text-muted-color);
+    font-size: 0.75rem;
+    line-height: 1.7;
+
+    kbd {
+      display: inline-flex;
+      align-items: center;
+      min-width: 1.25rem;
+      padding: 0.12rem 0.35rem;
+      margin: 0 0.15rem;
+      background: var(--sidebar-bg);
+      border: 0;
+      border-radius: 4px;
+      font-family: $cn-font-stack;
+      font-size: 0.6875rem;
+      line-height: 1;
+      color: var(--text-color);
+      vertical-align: baseline;
+    }
+
+    .dot {
+      margin: 0 0.45rem;
+      opacity: 0.45;
+    }
+  }
+}
+
+/* Hide the empty state when results are showing.
+   chirpy toggles `d-none` on #search-result-wrapper based on input.value. */
+.search-overlay:has(#search-result-wrapper:not(.d-none)) .search-overlay-empty {
+  display: none;
+}
+
+/* Inside the overlay, restyle search-results to match the compact list look:
+   smaller meta column, single-line summary, hover/active background tint. */
+.search-overlay {
+  /* width / margin / display reset for #search-result-wrapper lives on the
+     #search-result-wrapper.search-overlay-body rule above (needs ID-level
+     specificity to outrank the chirpy default). */
+
+  #search-results {
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+
+    .search-result-empty {
+      padding: 1.25rem;
+      margin: 0;
+    }
+
+    > article.search-result-item {
+      width: 100% !important;
+      margin: 0 !important;
+      border: 0;
+      border-radius: 0;
+      background-color: transparent;
+      transition: background-color 0.14s ease;
+
+      /* Hairline separator between items, like the list page. The first item
+         has no top rule so it sits flush against the search bar gap. */
+      & + article.search-result-item {
+        border-top: 1px solid rgba(15, 17, 23, 0.08);
+      }
+
+      &:hover,
+      &.is-active {
+        /* Translucent ink tint so the highlight reads on the blurred backdrop
+           without ever going opaque. */
+        background-color: rgba(15, 17, 23, 0.05);
+        border-bottom-color: transparent;
+      }
+
+      &:hover .search-result-title,
+      &.is-active .search-result-title {
+        color: var(--link-color);
+      }
+    }
+
+    .search-result-preview {
+      padding: 1rem 1.25rem;
+      grid-template-columns: 9rem minmax(0, 1fr);
+      gap: 1.5rem;
+      border-radius: 0;
+    }
+
+    .search-result-meta {
+      font-size: 0.875rem;
+      line-height: 1.45;
+
+      .search-result-category {
+        font-weight: 500;
+        font-size: 0.875rem;
+        margin-bottom: 0.15rem;
+      }
+
+      .search-result-date {
+        font-size: 0.8125rem;
+      }
+    }
+
+    .search-result-body {
+      .search-result-title {
+        font-size: 1.0625rem;
+        line-height: 1.4;
+        margin-bottom: 0.3rem;
+        transition: color 0.14s ease;
+      }
+
+      .search-result-summary {
+        font-size: 0.9375rem;
+        line-height: 1.6;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+      }
+    }
+  }
+}
+
+/* On narrow screens, collapse meta column inline above the body. */
+@media (max-width: 575.98px) {
+  .search-overlay {
+    padding-top: 8vh;
+
+    .search-overlay-window {
+      max-width: 100%;
+      border-radius: 14px;
+    }
+
+    .search-overlay-bar,
+    .search-overlay-empty,
+    #search-result-wrapper.search-overlay-body {
+      max-width: 100%;
+    }
+
+    #search-results .search-result-preview {
+      grid-template-columns: 1fr;
+      gap: 0.4rem;
+      padding: 0.85rem 1rem;
+    }
+
+    #search-results .search-result-meta {
+      display: flex;
+      gap: 0.5rem;
+      align-items: baseline;
+    }
+  }
+}
+
+/* Dark mode: dark vibrancy for the chrome cards (bar + empty hint), with the
+   results list flowing flat over the dark blurred backdrop -- separators and
+   hover ink switch to white-on-dark. */
+@mixin search-overlay-dark {
+  .search-overlay-bar,
+  .search-overlay-empty {
+    background: rgba(28, 30, 36, 0.66);
+  }
+
+  .search-overlay
+    #search-results
+    > article.search-result-item
+    + article.search-result-item {
+    border-top-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .search-overlay #search-results > article.search-result-item {
+    &:hover,
+    &.is-active {
+      background-color: rgba(255, 255, 255, 0.05);
+    }
+  }
+}
+
+[data-mode='dark'] {
+  @include search-overlay-dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  html:not([data-mode='light']) {
+    @include search-overlay-dark;
+  }
 }
 
 /* Mermaid: neutral mono palette using chirpy theme variables (light + dark auto) */
@@ -207,5 +1550,33 @@ main {
   .edgeLabel .label {
     background-color: var(--main-bg) !important;
     fill: var(--main-bg) !important;
+  }
+}
+
+/* Immersive reading on post detail pages: sidebar is dropped from DOM via
+   _layouts/default.html when site.post_hide_sidebar (or page.hide_sidebar)
+   is true. CSS reclaims the left margin reserved for the sidebar and
+   widens / centers the reading column. */
+body[data-immersive] {
+  #main-wrapper {
+    margin-left: 0 !important;
+  }
+
+  /* Override the wide-screen rule that reserves 260/300px for the sidebar. */
+  @media (min-width: 1200px) {
+    #main-wrapper > .container {
+      max-width: min(100vw, 1280px);
+    }
+  }
+
+  @media (min-width: 1650px) {
+    #main-wrapper > .container {
+      max-width: min(100vw, 1280px);
+    }
+  }
+
+  /* Mobile slide-in anchor no longer applies; nothing to translate. */
+  #main-wrapper {
+    transform: none !important;
   }
 }

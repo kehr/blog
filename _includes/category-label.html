@@ -1,0 +1,17 @@
+{%- comment -%}
+  Resolve a localized category label from the current locale's `categories`
+  map. Falls back to the original name when no translation is provided, so
+  adding a new language only requires adding entries to that locale file -
+  template usage stays the same.
+
+  Arguments:
+    name: original category name (e.g. "Engineering")
+    lang: current locale code (e.g. "zh-CN")
+{%- endcomment -%}
+{%- assign _key = include.name | slugify -%}
+{%- assign _localized = site.data.locales[include.lang].category_labels[_key] -%}
+{%- if _localized -%}
+  {{- _localized -}}
+{%- else -%}
+  {{- include.name -}}
+{%- endif -%}

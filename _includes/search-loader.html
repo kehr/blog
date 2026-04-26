@@ -1,0 +1,54 @@
+<!--
+  Jekyll Simple Search loader
+  See: <https://github.com/christian-fei/Simple-Jekyll-Search>
+
+  Local override: render each result as a two-column row that mirrors the
+  home/list layout (meta column + body column) instead of the upstream
+  two-up grid with bullet chrome.
+-->
+
+{% capture result_elem %}
+  <article class="search-result-item">
+    <a href="{url}" class="search-result-preview">
+      <div class="search-result-meta">
+        <div class="search-result-category">{categories}</div>
+        <div class="search-result-date">{date}</div>
+      </div>
+      <div class="search-result-body">
+        <h2 class="search-result-title">{title}</h2>
+        <p class="search-result-summary">{content}</p>
+      </div>
+    </a>
+  </article>
+{% endcapture %}
+
+{% capture not_found %}<p class="search-result-empty">{{ site.data.locales[include.lang].search.no_results }}</p>{% endcapture %}
+
+<script>
+  {% comment %} Note: dependent library will be loaded in `js-selector.html` {% endcomment %}
+  document.addEventListener('DOMContentLoaded', () => {
+    const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+    SimpleJekyllSearch({
+      searchInput: document.getElementById('search-input'),
+      resultsContainer: document.getElementById('search-results'),
+      json: '{{ '/assets/js/data/search.json' | relative_url }}',
+      searchResultTemplate: '{{ result_elem | strip_newlines }}',
+      noResultsText: '{{ not_found }}',
+      templateMiddleware: function (prop, value) {
+        if (prop === 'date') {
+          if (!value) return '';
+          const d = new Date(value);
+          if (isNaN(d.getTime())) return value;
+          return `${MONTHS[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()}`;
+        }
+
+        if (prop === 'categories') {
+          if (!value) return '';
+          // Show only the leading category to match the home list meta column.
+          return value.split(',')[0].trim();
+        }
+      }
+    });
+  });
+</script>

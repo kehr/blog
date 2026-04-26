@@ -15,10 +15,21 @@ layout:
 tabs:
   # format: <filename_without_extension>: <value>
   home: 首页
+  blog: 博客
   categories: 分类
   tags: 标签
   archives: 归档
   about: 关于
+
+# Category display labels. Keys are the post `categories:` value lowercased
+# and slugified (so "Older Posts" -> "older-posts"). Missing entries fall back
+# to the original English name in templates. Add new categories as needed.
+# (Top-level `categories:` further below is for the category index page,
+# do not merge.)
+category_labels:
+  engineering: 软件工程
+  reading: 阅读
+  life: 生活
 
 # the text displayed in the search bar & search results
 search:
@@ -64,6 +75,8 @@ post:
     unit: 分钟
     prompt: 阅读
   relate_posts: 相关文章
+  filed_in: 归档于
+  more_to_read: 继续阅读
   share: 分享
   button:
     next: 下一篇

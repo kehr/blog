@@ -1,0 +1,204 @@
+<!--
+  Spotlight-style search overlay.
+
+  Local override that replaces chirpy's centered flex panel. The whole search
+  experience (input + results + empty hint) lives inside a fixed overlay that
+  gets summoned by the topbar trigger or Cmd/Ctrl+K. Animations:
+    - Backdrop fades + blurs in (220ms ease).
+    - Window springs up + scales (360ms cubic-bezier(0.32, 0.72, 0, 1)).
+    - Results stagger via the existing `search-result-in` keyframes.
+  All wiring is decoupled from chirpy's own search-trigger/cancel markup so
+  the bundled commons.min.js does not fight us.
+-->
+
+<div id="search-overlay" class="search-overlay" aria-hidden="true" hidden>
+  <div class="search-overlay-backdrop" data-overlay-dismiss></div>
+  <div
+    class="search-overlay-window"
+    role="dialog"
+    aria-modal="true"
+    aria-label="{{ site.data.locales[include.lang].search.hint | capitalize }}"
+  >
+    <div class="search-overlay-bar">
+      <i class="fas fa-search search-overlay-icon" aria-hidden="true"></i>
+      <input
+        id="search-input"
+        class="search-overlay-input"
+        type="search"
+        autocomplete="off"
+        spellcheck="false"
+        aria-label="{{ site.data.locales[include.lang].search.hint | capitalize }}"
+        placeholder="{{ site.data.locales[include.lang].search.hint | capitalize }} ..."
+      >
+      <kbd class="search-overlay-esc" aria-hidden="true">esc</kbd>
+    </div>
+
+    <div id="search-result-wrapper" class="search-overlay-body d-none">
+      <div id="search-hints" hidden>
+        {% include_cached trending-tags.html lang=include.lang %}
+      </div>
+      <div id="search-results" role="listbox" aria-label="Search results"></div>
+    </div>
+
+    <div class="search-overlay-empty" data-search-empty>
+      <p class="search-overlay-empty-title">No history yet — start typing to search</p>
+      <p class="search-overlay-empty-hint">
+        <kbd>↑</kbd><kbd>↓</kbd> navigate
+        <span class="dot">·</span>
+        <kbd>↵</kbd> open
+        <span class="dot">·</span>
+        <kbd>esc</kbd> close
+      </p>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function () {
+    var overlay = document.getElementById('search-overlay');
+    var trigger = document.getElementById('search-launch');
+    var input = document.getElementById('search-input');
+    var backdrop = overlay && overlay.querySelector('[data-overlay-dismiss]');
+    var resultWrapper = document.getElementById('search-result-wrapper');
+    if (!overlay || !trigger || !input) return;
+
+    var OPEN_CLASS = 'is-open';
+    var BODY_CLASS = 'search-overlay-open';
+    var EXIT_MS = 240;
+
+    function isOpen() {
+      return overlay.classList.contains(OPEN_CLASS);
+    }
+
+    function open() {
+      if (isOpen()) return;
+      overlay.removeAttribute('hidden');
+      overlay.setAttribute('aria-hidden', 'false');
+      document.body.classList.add(BODY_CLASS);
+      // Force reflow so the transition runs from the hidden state.
+      void overlay.offsetWidth;
+      overlay.classList.add(OPEN_CLASS);
+      requestAnimationFrame(function () {
+        try { input.focus({ preventScroll: true }); } catch (e) { input.focus(); }
+        input.select();
+      });
+    }
+
+    function close() {
+      if (!isOpen()) return;
+      overlay.classList.remove(OPEN_CLASS);
+      document.body.classList.remove(BODY_CLASS);
+      input.blur();
+      setTimeout(function () {
+        overlay.setAttribute('aria-hidden', 'true');
+        overlay.setAttribute('hidden', '');
+        // Reset query so re-opening starts clean.
+        if (input.value !== '') {
+          input.value = '';
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+        clearActive();
+      }, EXIT_MS);
+    }
+
+    function getResultItems() {
+      return overlay.querySelectorAll('#search-results .search-result-item');
+    }
+
+    function clearActive() {
+      var items = getResultItems();
+      for (var i = 0; i < items.length; i++) items[i].classList.remove('is-active');
+    }
+
+    function setActive(index) {
+      var items = getResultItems();
+      if (!items.length) return;
+      var n = items.length;
+      var idx = ((index % n) + n) % n;
+      clearActive();
+      var target = items[idx];
+      target.classList.add('is-active');
+      try { target.scrollIntoView({ block: 'nearest' }); } catch (e) {}
+    }
+
+    function activeIndex() {
+      var items = getResultItems();
+      for (var i = 0; i < items.length; i++) {
+        if (items[i].classList.contains('is-active')) return i;
+      }
+      return -1;
+    }
+
+    function navigate(delta) {
+      var items = getResultItems();
+      if (!items.length) return;
+      var current = activeIndex();
+      var next = current === -1 ? (delta > 0 ? 0 : items.length - 1) : current + delta;
+      setActive(next);
+    }
+
+    function openActive() {
+      var current = activeIndex();
+      var items = getResultItems();
+      var target = current === -1 ? items[0] : items[current];
+      if (!target) return;
+      var link = target.querySelector('a');
+      if (link && link.href) window.location.href = link.href;
+    }
+
+    trigger.addEventListener('click', function (e) {
+      e.preventDefault();
+      open();
+    });
+
+    if (backdrop) {
+      backdrop.addEventListener('click', function () { close(); });
+    }
+
+    document.addEventListener('keydown', function (e) {
+      var key = e.key;
+      var isMod = e.metaKey || e.ctrlKey;
+      var isCmdK = isMod && (key === 'k' || key === 'K');
+      if (isCmdK) {
+        e.preventDefault();
+        if (isOpen()) close(); else open();
+        return;
+      }
+      if (!isOpen()) return;
+      if (key === 'Escape') {
+        e.preventDefault();
+        close();
+      } else if (key === 'ArrowDown') {
+        e.preventDefault();
+        navigate(1);
+      } else if (key === 'ArrowUp') {
+        e.preventDefault();
+        navigate(-1);
+      } else if (key === 'Enter') {
+        if (getResultItems().length > 0) {
+          e.preventDefault();
+          openActive();
+        }
+      }
+    });
+
+    // Auto-highlight first result whenever the result list re-renders.
+    if (resultWrapper) {
+      var observer = new MutationObserver(function () {
+        clearActive();
+        var first = overlay.querySelector('#search-results .search-result-item');
+        if (first) first.classList.add('is-active');
+      });
+      observer.observe(resultWrapper, { childList: true, subtree: true });
+    }
+
+    // Hover follows the keyboard highlight model: hovering an item makes it active.
+    overlay.addEventListener('mouseover', function (e) {
+      var item = e.target.closest('.search-result-item');
+      if (!item) return;
+      var items = getResultItems();
+      var idx = Array.prototype.indexOf.call(items, item);
+      if (idx >= 0) setActive(idx);
+    });
+  })();
+</script>

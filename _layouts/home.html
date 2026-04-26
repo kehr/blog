@@ -1,0 +1,122 @@
+---
+layout: default
+---
+
+{% include lang.html %}
+
+{% assign all_pinned = site.posts | where: 'pin', 'true' %}
+{% assign all_normal = site.posts | where_exp: 'item', 'item.pin != true and item.hidden != true' %}
+
+{% assign posts = '' | split: '' %}
+
+<!-- Get pinned posts on current page -->
+
+{% assign visible_start = paginator.page | minus: 1 | times: paginator.per_page %}
+{% assign visible_end = visible_start | plus: paginator.per_page %}
+
+{% if all_pinned.size > visible_start %}
+  {% if all_pinned.size > visible_end %}
+    {% assign pinned_size = paginator.per_page %}
+  {% else %}
+    {% assign pinned_size = all_pinned.size | minus: visible_start %}
+  {% endif %}
+
+  {% for i in (visible_start..all_pinned.size) limit: pinned_size %}
+    {% assign posts = posts | push: all_pinned[i] %}
+  {% endfor %}
+{% else %}
+  {% assign pinned_size = 0 %}
+{% endif %}
+
+<!-- Get normal posts on current page -->
+
+{% assign normal_size = paginator.posts | size | minus: pinned_size %}
+
+{% if normal_size > 0 %}
+  {% if pinned_size > 0 %}
+    {% assign normal_start = 0 %}
+  {% else %}
+    {% assign normal_start = visible_start | minus: all_pinned.size %}
+  {% endif %}
+
+  {% assign normal_end = normal_start | plus: normal_size | minus: 1 %}
+
+  {% for i in (normal_start..normal_end) %}
+    {% assign posts = posts | push: all_normal[i] %}
+  {% endfor %}
+{% endif %}
+
+<div id="post-list" class="flex-grow-1 px-xl-1">
+  {% for post in posts %}
+    {%- assign has_cover = false -%}
+    {%- if post.image and site.home_cover -%}
+      {%- assign has_cover = true -%}
+      {%- assign src = post.image.path | default: post.image -%}
+      {%- if post.media_subpath -%}
+        {%- unless src contains '://' -%}
+          {%- assign src = post.media_subpath
+            | append: '/'
+            | append: src
+            | replace: '///', '/'
+            | replace: '//', '/'
+          -%}
+        {%- endunless -%}
+      {%- endif -%}
+      {%- if post.image.lqip -%}
+        {%- assign lqip = post.image.lqip -%}
+        {%- if post.media_subpath -%}
+          {%- unless lqip contains 'data:' -%}
+            {%- assign lqip = post.media_subpath
+              | append: '/'
+              | append: lqip
+              | replace: '///', '/'
+              | replace: '//', '/'
+            -%}
+          {%- endunless -%}
+        {%- endif -%}
+        {%- assign lqip_attr = 'lqip="' | append: lqip | append: '"' -%}
+      {%- endif -%}
+      {%- assign alt = post.image.alt | xml_escape | default: 'Preview Image' -%}
+    {%- endif -%}
+
+    <article class="card-wrapper{% if has_cover %} has-cover{% endif %}">
+      <a href="{{ post.url | relative_url }}" class="post-preview">
+        <div class="post-meta-col">
+          {% if post.categories.size > 0 %}
+            <div class="post-categories">
+              {% for category in post.categories %}
+                {%- include category-label.html name=category lang=lang -%}
+                {%- unless forloop.last -%}, {%- endunless -%}
+              {% endfor %}
+            </div>
+          {% endif %}
+          <div class="post-date">
+            {% include datetime.html date=post.date lang=lang %}
+          </div>
+          {% if post.pin %}
+            <div class="post-pin">
+              <i class="fas fa-thumbtack fa-fw"></i>
+              <span>{{ site.data.locales[lang].post.pin_prompt }}</span>
+            </div>
+          {% endif %}
+        </div>
+
+        <div class="post-body-col">
+          <h2 class="post-title">{{ post.title }}</h2>
+          <div class="post-summary">{% include post-summary.html %}</div>
+        </div>
+
+        {% if has_cover %}
+          <div class="post-image-col">
+            <img src="{{ src }}" alt="{{ alt }}" {{ lqip_attr }}>
+          </div>
+        {% endif %}
+      </a>
+    </article>
+  {% endfor %}
+</div>
+<!-- #post-list -->
+
+{% if paginator.total_pages > 1 %}
+  {% include post-paginator.html %}
+{% endif %}

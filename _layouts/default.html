@@ -16,8 +16,23 @@ layout: compress
 <html lang="{{ page.lang | default: site.alt_lang | default: site.lang }}" {{ prefer_mode }}>
   {% include head.html lang=lang %}
 
-  <body>
-    {% include sidebar.html lang=lang %}
+  {%- comment -%}
+    Immersive reading mode on post detail pages: hide the left sidebar
+    so the article occupies the full reading width. Site-level switch:
+    `site.post_hide_sidebar`. Per-post override via front matter
+    `hide_sidebar: true|false` (takes precedence when set).
+  {%- endcomment -%}
+  {%- assign immersive = false -%}
+  {%- if page.layout == 'post' -%}
+    {%- if page.hide_sidebar != nil -%}
+      {%- assign immersive = page.hide_sidebar -%}
+    {%- else -%}
+      {%- assign immersive = site.post_hide_sidebar -%}
+    {%- endif -%}
+  {%- endif -%}
+
+  <body{% if immersive %} data-immersive{% endif %}>
+    {% unless immersive %}{% include sidebar.html lang=lang %}{% endunless %}
 
     <div id="main-wrapper" class="d-flex justify-content-center">
       <div class="container d-flex flex-column px-xxl-5">
@@ -54,6 +69,9 @@ layout: compress
 
         <div class="row">
           <!-- tail -->
+          <!-- Post tail content lives inside <article> in post.html so width
+               tracks the body column directly. tail-wrapper here only renders
+               whatever layouts opt in (default: footer + any layout.tail_includes). -->
           <div id="tail-wrapper" class="col-12 col-lg-11 col-xl-9 px-md-4">
             {% for _include in layout.tail_includes %}
               {% assign _include_path = _include | append: '.html' %}

@@ -1,0 +1,103 @@
+{% include toc-status.html %}
+
+{% if enable_toc %}
+  <div class="toc-border-cover z-3"></div>
+  <section id="toc-wrapper" class="invisible position-sticky ps-0 pe-4 pb-4">
+    <div class="toc-header d-flex align-items-center justify-content-between">
+      <h2 class="panel-heading ps-3 pb-2 mb-0">{{- site.data.locales[include.lang].panel.toc -}}</h2>
+      <button
+        type="button"
+        id="toc-collapse-trigger"
+        class="btn"
+        aria-label="Collapse table of contents"
+        aria-controls="toc"
+        aria-expanded="true"
+      >
+        <i class="fas fa-xmark" aria-hidden="true"></i>
+      </button>
+    </div>
+    <nav id="toc"></nav>
+  </section>
+
+  <script>
+    (function () {
+      var STORAGE_KEY = 'toc-collapsed';
+      var FADE_MS = 180;
+      var root = document.documentElement;
+
+      function readState() {
+        try { return localStorage.getItem(STORAGE_KEY) === '1'; } catch (e) { return false; }
+      }
+
+      function writeState(collapsed) {
+        try { localStorage.setItem(STORAGE_KEY, collapsed ? '1' : '0'); } catch (e) {}
+      }
+
+      function syncAria(collapsed) {
+        var collapseBtn = document.getElementById('toc-collapse-trigger');
+        var expandBtn = document.getElementById('toc-expand-trigger');
+        if (collapseBtn) collapseBtn.setAttribute('aria-expanded', String(!collapsed));
+        if (expandBtn) expandBtn.setAttribute('aria-expanded', String(!collapsed));
+      }
+
+      function setCollapsed(collapsed, opts) {
+        opts = opts || {};
+        var animate = opts.animate !== false;
+        var current = root.hasAttribute('data-toc-collapsed');
+        if (current === collapsed) {
+          syncAria(collapsed);
+          return;
+        }
+        if (!animate) {
+          if (collapsed) root.setAttribute('data-toc-collapsed', '');
+          else root.removeAttribute('data-toc-collapsed');
+          syncAria(collapsed);
+          return;
+        }
+        if (collapsed) {
+          root.classList.add('toc-fading-out');
+          setTimeout(function () {
+            root.setAttribute('data-toc-collapsed', '');
+            root.classList.remove('toc-fading-out');
+            syncAria(true);
+          }, FADE_MS);
+        } else {
+          root.removeAttribute('data-toc-collapsed');
+          syncAria(false);
+        }
+      }
+
+      function ensureExpandTrigger() {
+        if (document.getElementById('toc-expand-trigger')) return;
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.id = 'toc-expand-trigger';
+        btn.setAttribute('aria-label', 'Show table of contents');
+        btn.setAttribute('aria-controls', 'toc');
+        btn.setAttribute('aria-expanded', 'false');
+        var icon = document.createElement('i');
+        icon.className = 'fas fa-list-ul';
+        icon.setAttribute('aria-hidden', 'true');
+        btn.appendChild(icon);
+        btn.addEventListener('click', function () {
+          setCollapsed(false);
+          writeState(false);
+        });
+        document.body.appendChild(btn);
+      }
+
+      document.addEventListener('DOMContentLoaded', function () {
+        var collapseBtn = document.getElementById('toc-collapse-trigger');
+        if (collapseBtn) {
+          collapseBtn.addEventListener('click', function () {
+            setCollapsed(true);
+            writeState(true);
+          });
+        }
+        ensureExpandTrigger();
+        // Skip animation on initial load to avoid a flash on already-collapsed pages.
+        setCollapsed(readState(), { animate: false });
+      });
+    })();
+  </script>
+{% endif %}

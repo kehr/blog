@@ -1,4 +1,18 @@
 {%- comment -%}
+  Restore TOC collapsed state synchronously before paint to avoid layout flash.
+  Mirrors the localStorage key used by the toc.html include.
+{%- endcomment -%}
+<script>
+  (function () {
+    try {
+      if (localStorage.getItem('toc-collapsed') === '1') {
+        document.documentElement.setAttribute('data-toc-collapsed', '');
+      }
+    } catch (e) {}
+  })();
+</script>
+
+{%- comment -%}
   Inject pangu.js so Chinese / English / digit boundaries get auto 1/4-em spacing
   on browsers that do not yet support CSS `text-autospace` (Firefox, older Safari).
   pangu mutates DOM after load; chrome 119+ uses CSS path and pangu is a no-op safety net.

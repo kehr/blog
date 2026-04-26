@@ -1,0 +1,81 @@
+<!-- The Top Bar -->
+
+<header id="topbar-wrapper" class="flex-shrink-0" aria-label="Top Bar">
+  <div
+    id="topbar"
+    class="d-flex align-items-center justify-content-between px-lg-3 h-100"
+  >
+    <nav id="breadcrumb" aria-label="Breadcrumb">
+      {% assign paths = page.url | split: '/' %}
+
+      {%- comment -%}
+        Resolve home label with locale awareness: try locale's
+        `tabs[<lowercased sidebar_home_label>]` first (e.g. zh-CN `tabs.blog ->
+        博客`), then fall back to the literal config value, then to
+        `tabs.home | capitalize`. See sidebar.html for the same pattern.
+      {%- endcomment -%}
+      {%- assign _home_key = site.sidebar_home_label | default: 'home' | downcase -%}
+      {%- assign _home_label = site.data.locales[include.lang].tabs[_home_key] | default: site.sidebar_home_label | default: site.data.locales[include.lang].tabs.home | capitalize -%}
+
+      {% if paths.size == 0 or page.layout == 'home' %}
+        <!-- index page -->
+        <span>{{ _home_label }}</span>
+      {% else %}
+        {% for item in paths %}
+          {% if forloop.first %}
+            <span>
+              <a href="{{ '/' | relative_url }}">
+                {{- _home_label -}}
+              </a>
+            </span>
+
+          {% elsif forloop.last %}
+            {% if page.collection == 'tabs' %}
+              <span>{{ site.data.locales[include.lang].tabs[item] | default: page.title }}</span>
+            {% else %}
+              <span>{{ page.title }}</span>
+            {% endif %}
+
+          {% elsif page.layout == 'category' or page.layout == 'tag' %}
+            <span>
+              <a href="{{ item | append: '/' | relative_url }}">
+                {{- site.data.locales[include.lang].tabs[item] | default: page.title -}}
+              </a>
+            </span>
+          {% endif %}
+        {% endfor %}
+      {% endif %}
+    </nav>
+    <!-- endof #breadcrumb -->
+
+    <button type="button" id="sidebar-trigger" class="btn btn-link" aria-label="Sidebar">
+      <i class="fas fa-bars fa-fw"></i>
+    </button>
+
+    <div id="topbar-title">
+      {% if page.layout == 'home' %}
+        {{- site.data.locales[include.lang].title | default: site.title -}}
+      {% elsif page.collection == 'tabs' or page.layout == 'page' %}
+        {%- capture tab_key -%}{{ page.url | split: '/' }}{%- endcapture -%}
+        {{- site.data.locales[include.lang].tabs[tab_key] | default: page.title -}}
+      {% else %}
+        {{- site.data.locales[include.lang].layout[page.layout] | default: page.layout | capitalize -}}
+      {% endif %}
+    </div>
+
+    <button type="button" id="search-launch" class="search-launcher" aria-label="Open search (⌘K)" title="Search · ⌘K">
+      <i class="fas fa-search" aria-hidden="true"></i>
+      <kbd class="search-launcher-hint" aria-hidden="true">
+        <span class="search-launcher-mod">⌘</span>K
+      </kbd>
+    </button>
+
+    <!-- Hidden chirpy native scaffolding. The Spotlight-style overlay (see
+         search-results.html) owns the actual search experience; we keep the
+         original IDs around as no-ops so chirpy's bundled commons.min.js
+         querySelectors do not error and so the topbar shape is undisturbed. -->
+    <search id="search" class="d-none" aria-hidden="true"></search>
+    <button type="button" id="search-trigger" class="d-none" aria-hidden="true" tabindex="-1">trigger</button>
+    <button type="button" class="btn btn-link text-decoration-none d-none" id="search-cancel" aria-hidden="true">cancel</button>
+  </div>
+</header>
