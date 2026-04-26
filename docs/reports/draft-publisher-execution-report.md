@@ -37,7 +37,7 @@
 | Step 3: 草稿读取与 title | completed | beb5677 | TDD 节奏；新增 17 个测试，总计 97/97 全绿；BOM 剥离用 `lstrip("﻿")` 而非 `.lstrip("﻿")`（字面量等价，两者均可）；`load_draft` 仅检查首个非空行是否 `---`，正文中间的水平分隔线不触发拒绝；`resolve_title` 直接用 `Path.stem`，原样保留中文/空格/混排标点；`run()` 接入 `load_draft` + `resolve_title`，config 路径由 `ctx.src_dir.parent / "_data" / "publish.yml"` 推导，与任意 cwd 无关 | - |
 | Step 4: Description 提取 | completed | bbdbc50 | TDD 节奏；新增 42 个测试（共 139/139 全绿）；strip_markdown_inline 按 TRD 4.3 顺序：链接 -> 行内代码 -> 星号序列 -> 下划线序列；extract_description 四优先级：CLI 显式值 -> config default -> 自动提取 -> 空值警告；截断用 `len(text)` 即字符数，中文单字符一位符合规范；run() 中 resolve_title 后紧接 extract_description | - |
 | Step 5: 图片处理 | completed | f1bcfa1 | TDD 节奏；新增 39 个测试（共 188/188 全绿）；ImageMove dataclass 置于 PublishConfig 之后；MD_IMG 用 [^)\s]+ 排除空白与右括号，HTML_IMG 用 re.IGNORECASE；classify_path 三分支（remote/absolute/relative）；hashes_equal 用 sha1 流式比较；process_images 两轮扫描：第一轮累积 missing 列表与 seen_source 去重；第二轮 re.sub 回调仅替换 path 部分保留 alt/title/attributes；~ 路径用 os.path.expanduser 展开后 Path.resolve()；run() 在 extract_description 后紧接 process_images | - |
-| Step 6: Front matter 构建 | pending | - | - | - |
+| Step 6: Front matter 构建 | completed | 1f038f8 | TDD 节奏；新增 65 个测试（共 257/257 全绿）；FIELD_ORDER 常量驱动字段顺序；_yaml_quote 检测 ASCII 冒号/井号/引号/反斜杠/前导特殊字符/YAML 关键词/纯数字；全角冒号 U+FF1A 不是 YAML 结构字符，可裸值输出，与真实 post 风格一致；build_frontmatter 严格按 CLI > config default 优先级；serialize_frontmatter 手工拼装，不依赖 yaml.dump | - |
 | Step 7: 组装与事务写盘 | pending | - | - | - |
 | Step 8: Makefile 与冒烟 | pending | - | - | - |
 
