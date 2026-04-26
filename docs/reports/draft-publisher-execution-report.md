@@ -35,7 +35,7 @@
 | Step 1: 配置与错误类型 | completed | c47af22 | TDD 节奏；30 个测试全绿；PyYAML API 对照 dir(yaml) 确认 | - |
 | Step 2: PublishContext 与 CLI | completed | aeac0b1 | TDD 全绿 (80/80)；`-abc` slug 被 argparse 拦在 SystemExit(2)，测试接受 `(InvalidSlugError, SystemExit)` 两种拒绝形式；parse_args 返回 Optional[PublishContext]，None 表示 --list 模式已处理；argparse API 通过 `dir()` 与 `help()` 验证 | - |
 | Step 3: 草稿读取与 title | completed | beb5677 | TDD 节奏；新增 17 个测试，总计 97/97 全绿；BOM 剥离用 `lstrip("﻿")` 而非 `.lstrip("﻿")`（字面量等价，两者均可）；`load_draft` 仅检查首个非空行是否 `---`，正文中间的水平分隔线不触发拒绝；`resolve_title` 直接用 `Path.stem`，原样保留中文/空格/混排标点；`run()` 接入 `load_draft` + `resolve_title`，config 路径由 `ctx.src_dir.parent / "_data" / "publish.yml"` 推导，与任意 cwd 无关 | - |
-| Step 4: Description 提取 | pending | - | - | - |
+| Step 4: Description 提取 | completed | bbdbc50 | TDD 节奏；新增 42 个测试（共 139/139 全绿）；strip_markdown_inline 按 TRD 4.3 顺序：链接 -> 行内代码 -> 星号序列 -> 下划线序列；extract_description 四优先级：CLI 显式值 -> config default -> 自动提取 -> 空值警告；截断用 `len(text)` 即字符数，中文单字符一位符合规范；run() 中 resolve_title 后紧接 extract_description | - |
 | Step 5: 图片处理 | pending | - | - | - |
 | Step 6: Front matter 构建 | pending | - | - | - |
 | Step 7: 组装与事务写盘 | pending | - | - | - |
