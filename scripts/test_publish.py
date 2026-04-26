@@ -2226,6 +2226,17 @@ class TestSerializeFrontmatterImageNested:
         result = serialize_frontmatter(fm)
         assert "/assets/img/foo.png" in result
 
+    def test_image_path_always_quoted(self):
+        """Match existing post style: image path wrapped in double quotes."""
+        fm = {"image": {"path": "/assets/img/foo.png"}}
+        result = serialize_frontmatter(fm)
+        assert '  path: "/assets/img/foo.png"' in result
+
+    def test_image_path_quote_escaped(self):
+        fm = {"image": {"path": '/p/"weird".png'}}
+        result = serialize_frontmatter(fm)
+        assert '  path: "/p/\\"weird\\".png"' in result
+
 
 class TestSerializeFrontmatterListIndent:
     """Verification 9: list fields render with 2-space bullet indent."""

@@ -787,8 +787,10 @@ def serialize_frontmatter(fm: dict) -> str:
             continue
         value = fm[key]
         if key == "image":
+            # Always wrap image path in double quotes for consistency with existing posts.
+            path_value = str(value["path"]).replace("\\", "\\\\").replace('"', '\\"')
             lines.append("image:")
-            lines.append(f"  path: {_yaml_quote(value['path'])}")
+            lines.append(f'  path: "{path_value}"')
         elif isinstance(value, list):
             if value:
                 lines.append(f"{key}:")
