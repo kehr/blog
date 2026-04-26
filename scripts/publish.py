@@ -488,6 +488,87 @@ def extract_description(ctx: "PublishContext") -> None:
 
 
 # ---------------------------------------------------------------------------
+# Front matter constants and helpers
+# ---------------------------------------------------------------------------
+
+# Fixed column sequence for every published post front matter block.
+FIELD_ORDER = ["title", "description", "date", "categories", "tags", "image"]
+
+# YAML keyword strings that would be misinterpreted as booleans or null if left bare.
+_YAML_KEYWORDS = frozenset(
+    ["yes", "no", "true", "false", "on", "off", "null", "~"]
+)
+
+# Characters that, if leading, require the value to be double-quoted.
+_YAML_LEADING_SPECIALS = frozenset("[]{}!*&|>%@`")
+
+
+def _yaml_quote(value: object) -> str:
+    """Return a safe YAML literal for *value*.
+
+    Rules applied in order:
+    1. bool/int/float/None -> canonical YAML literal (true/false/integer/null).
+    2. Empty string -> "".
+    3. Strings that need double-quoting (leading special chars, whitespace padding,
+       embedded colon/hash/quote, YAML keyword lookalikes, pure numeric) -> wrap in
+       double quotes and escape internal double-quotes and backslashes.
+    4. All other strings -> bare value.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return str(value)
+    if value is None:
+        return "null"
+    if not isinstance(value, str):
+        return str(value)
+
+    s = value
+
+    # Empty string must be quoted.
+    if s == "":
+        return '""'
+
+    # Strings that need quoting for structural reasons.
+    needs_quote = False
+
+    # Leading or trailing whitespace.
+    if s != s.strip():
+        needs_quote = True
+
+    # Leading special characters that alter YAML structure.
+    if not needs_quote and s[0] in _YAML_LEADING_SPECIALS:
+        needs_quote = True
+
+    # ASCII structural characters: colon (YAML key separator), hash (comment),
+    # quotes (ambiguous delimiters), or backslash (escape sequence trigger).
+    # Note: full-width colon U+FF1A is NOT a YAML structural character and
+    # does not require quoting.
+    if not needs_quote and (":" in s or "#" in s or "'" in s or '"' in s or "\\" in s):
+        needs_quote = True
+
+    # Looks like a YAML boolean / null keyword (case-insensitive).
+    if not needs_quote and s.lower() in _YAML_KEYWORDS:
+        needs_quote = True
+
+    # Looks like a pure number (would be parsed as int/float, not string).
+    if not needs_quote:
+        try:
+            float(s)
+            needs_quote = True
+        except ValueError:
+            pass
+
+    if needs_quote:
+        escaped = s.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+
+    return s
+
+
+# ---------------------------------------------------------------------------
 # Image processing helpers
 # ---------------------------------------------------------------------------
 
@@ -648,6 +729,82 @@ def process_images(ctx: "PublishContext") -> None:
 
 
 # ---------------------------------------------------------------------------
+# Pipeline steps: front matter builder and serializer
+# ---------------------------------------------------------------------------
+
+
+def build_frontmatter(ctx: "PublishContext") -> None:
+    """Populate ctx.front_matter with all 6 standard fields in FIELD_ORDER.
+
+    Priority for each field (CLI > config default):
+    - title: ctx.title (set by resolve_title)
+    - description: ctx.description (set by extract_description)
+    - date: ctx.cli_date if provided, else ctx.publish_date; also updates ctx.publish_date
+    - categories: ctx.cli_categories if not None, else ctx.config.default_categories
+    - tags: ctx.cli_tags if not None, else ctx.config.default_tags
+    - image: {"path": ctx.cli_image} if cli_image not None, else {"path": default_image_path}
+    """
+    config = ctx.config
+
+    # Resolve and lock in the final publish date.
+    if ctx.cli_date is not None:
+        ctx.publish_date = ctx.cli_date
+
+    categories = (
+        ctx.cli_categories
+        if ctx.cli_categories is not None
+        else list(config.default_categories)
+    )
+    tags = (
+        ctx.cli_tags
+        if ctx.cli_tags is not None
+        else list(config.default_tags)
+    )
+    image_path = (
+        ctx.cli_image
+        if ctx.cli_image is not None
+        else config.default_image_path
+    )
+
+    # Build ordered dict following FIELD_ORDER insertion sequence.
+    ctx.front_matter["title"] = ctx.title
+    ctx.front_matter["description"] = ctx.description
+    ctx.front_matter["date"] = ctx.publish_date
+    ctx.front_matter["categories"] = categories
+    ctx.front_matter["tags"] = tags
+    ctx.front_matter["image"] = {"path": image_path}
+
+
+def serialize_frontmatter(fm: dict) -> str:
+    """Hand-assemble the YAML front matter block from *fm* dict.
+
+    Field order is driven by FIELD_ORDER.  Never relies on yaml.dump to
+    guarantee stable column sequence matching existing posts style.
+    """
+    lines = ["---"]
+    for key in FIELD_ORDER:
+        if key not in fm:
+            continue
+        value = fm[key]
+        if key == "image":
+            lines.append("image:")
+            lines.append(f"  path: {_yaml_quote(value['path'])}")
+        elif isinstance(value, list):
+            if value:
+                lines.append(f"{key}:")
+                for item in value:
+                    lines.append(f"  - {_yaml_quote(item)}")
+            else:
+                lines.append(f"{key}: []")
+        elif isinstance(value, datetime):
+            lines.append(f"{key}: {value.strftime('%Y-%m-%d %H:%M:%S %z')}")
+        else:
+            lines.append(f"{key}: {_yaml_quote(value)}")
+    lines.append("---")
+    return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------------------
 # Pipeline entry point
 # ---------------------------------------------------------------------------
 
@@ -665,6 +822,7 @@ def run(argv: list[str]) -> int:
         resolve_title(ctx)
         extract_description(ctx)
         process_images(ctx)
+        build_frontmatter(ctx)
         # Subsequent pipeline steps added in later steps.
         return 0
     except PublishError as e:

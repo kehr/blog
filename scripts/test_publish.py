@@ -1,4 +1,4 @@
-"""Tests for publish.py - Step 1: config and error types. Step 2: CLI and context. Step 3: draft loader and title resolver. Step 4: description extractor. Step 5: image scanner and link rewriter."""
+"""Tests for publish.py - Step 1: config and error types. Step 2: CLI and context. Step 3: draft loader and title resolver. Step 4: description extractor. Step 5: image scanner and link rewriter. Step 6: front matter builder and serializer."""
 import sys
 from datetime import datetime
 from io import StringIO
@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from publish import (
+    FIELD_ORDER,
     ConfigParseError,
     DraftHasFrontMatterError,
     DraftNotFoundError,
@@ -18,6 +19,8 @@ from publish import (
     PublishContext,
     PublishError,
     TargetPostExistsError,
+    _yaml_quote,
+    build_frontmatter,
     classify_path,
     extract_description,
     hashes_equal,
@@ -27,6 +30,7 @@ from publish import (
     process_images,
     resolve_title,
     run,
+    serialize_frontmatter,
     strip_markdown_inline,
 )
 
@@ -1856,3 +1860,554 @@ class TestHtmlImgSingleQuoteSrc:
 
         assert "/assets/img/posts/my-post/foo.png" in ctx.rewritten_body
         assert str(img) not in ctx.rewritten_body
+
+
+# ---------------------------------------------------------------------------
+# Step 6 helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_fm_config(
+    categories: list[str] | None = None,
+    tags: list[str] | None = None,
+    image_path: str = "/assets/img/default.jpg",
+) -> PublishConfig:
+    """Build a PublishConfig with controllable front matter defaults."""
+    return PublishConfig(
+        default_categories=categories if categories is not None else ["Notes"],
+        default_tags=tags if tags is not None else ["notes"],
+        default_image_path=image_path,
+        default_description="",
+        desc_max_length=160,
+        desc_strip_markdown=True,
+        images_posts_dir=Path("assets/img/posts"),
+        images_url_prefix="/assets/img/posts",
+        posts_dir=Path("_posts"),
+        slug_pattern="^[a-z0-9][a-z0-9-]*$",
+        fail_on_existing_post=True,
+    )
+
+
+def _make_fm_ctx(
+    slug: str = "test-post",
+    title: str = "Test Title",
+    description: str = "A test description.",
+    cli_categories: list[str] | None = None,
+    cli_tags: list[str] | None = None,
+    cli_image: str | None = None,
+    cli_date: datetime | None = None,
+    config: PublishConfig | None = None,
+) -> PublishContext:
+    """Build a PublishContext with fields pre-filled up to build_frontmatter."""
+    if config is None:
+        config = _make_fm_config()
+    ctx = PublishContext(
+        draft_file=Path("/tmp/draft.md"),
+        slug=slug,
+        src_dir=Path("/tmp/_drafts"),
+        cli_categories=cli_categories,
+        cli_tags=cli_tags,
+        cli_image=cli_image,
+        cli_description=None,
+        cli_date=cli_date,
+        dry_run=False,
+        force=False,
+        verbose=False,
+    )
+    ctx.config = config
+    ctx.title = title
+    ctx.description = description
+    return ctx
+
+
+# ---------------------------------------------------------------------------
+# Step 6: _yaml_quote
+# ---------------------------------------------------------------------------
+
+
+class TestYamlQuoteSafeText:
+    """test_yaml_quote_safe_text: plain text and Chinese output as bare values."""
+
+    def test_plain_english(self):
+        assert _yaml_quote("hello world") == "hello world"
+
+    def test_chinese_bare(self):
+        # Chinese characters are safe bare values in YAML 1.1/1.2 with UTF-8
+        assert _yaml_quote("你好世界") == "你好世界"
+
+    def test_mixed_chinese_english(self):
+        assert _yaml_quote("从 LLM 到 Agent") == "从 LLM 到 Agent"
+
+    def test_digits_embedded_in_text(self):
+        # text with embedded digits is fine as long as the whole string is not numeric
+        assert _yaml_quote("step 6") == "step 6"
+
+
+class TestYamlQuoteSpecial:
+    """test_yaml_quote_special: strings with special chars are double-quoted."""
+
+    def test_colon_in_string(self):
+        result = _yaml_quote("title: with colon")
+        assert result.startswith('"') and result.endswith('"')
+
+    def test_hash_in_string(self):
+        result = _yaml_quote("text # comment")
+        assert result.startswith('"') and result.endswith('"')
+
+    def test_single_quote_in_string(self):
+        result = _yaml_quote("it's fine")
+        assert result.startswith('"') and result.endswith('"')
+
+    def test_double_quote_in_string_escapes(self):
+        result = _yaml_quote('say "hello"')
+        # Outer double-quotes wrapping, inner double-quote escaped
+        assert result == '"say \\"hello\\""'
+
+    def test_leading_bracket(self):
+        result = _yaml_quote("[item]")
+        assert result.startswith('"') and result.endswith('"')
+
+    def test_leading_brace(self):
+        result = _yaml_quote("{key: val}")
+        assert result.startswith('"') and result.endswith('"')
+
+    def test_leading_exclamation(self):
+        result = _yaml_quote("!important")
+        assert result.startswith('"') and result.endswith('"')
+
+    def test_leading_asterisk(self):
+        result = _yaml_quote("*bold*")
+        assert result.startswith('"') and result.endswith('"')
+
+    def test_leading_ampersand(self):
+        result = _yaml_quote("&ref")
+        assert result.startswith('"') and result.endswith('"')
+
+    def test_leading_pipe(self):
+        result = _yaml_quote("|literal")
+        assert result.startswith('"') and result.endswith('"')
+
+    def test_leading_gt(self):
+        result = _yaml_quote(">folded")
+        assert result.startswith('"') and result.endswith('"')
+
+    def test_leading_percent(self):
+        result = _yaml_quote("%TAG")
+        assert result.startswith('"') and result.endswith('"')
+
+    def test_leading_at(self):
+        result = _yaml_quote("@handle")
+        assert result.startswith('"') and result.endswith('"')
+
+    def test_leading_backtick(self):
+        result = _yaml_quote("`code`")
+        assert result.startswith('"') and result.endswith('"')
+
+    def test_leading_whitespace(self):
+        result = _yaml_quote(" leading space")
+        assert result.startswith('"') and result.endswith('"')
+
+    def test_trailing_whitespace(self):
+        result = _yaml_quote("trailing space ")
+        assert result.startswith('"') and result.endswith('"')
+
+    def test_backslash_escaped_in_quoted(self):
+        result = _yaml_quote("path\\to\\file")
+        # Backslash triggers quoting
+        assert result.startswith('"') and result.endswith('"')
+        # Internal backslashes must be escaped as \\
+        assert '\\\\' in result
+
+
+class TestYamlQuoteEmpty:
+    """test_yaml_quote_empty: empty string returns the literal two double-quotes."""
+
+    def test_empty_string(self):
+        assert _yaml_quote("") == '""'
+
+
+class TestYamlQuoteYamlKeywords:
+    """test_yaml_quote_yaml_keywords: YAML boolean/null lookalikes are quoted."""
+
+    def test_yes_quoted(self):
+        result = _yaml_quote("yes")
+        assert result.startswith('"') and result.endswith('"')
+
+    def test_no_quoted(self):
+        result = _yaml_quote("no")
+        assert result.startswith('"') and result.endswith('"')
+
+    def test_true_quoted(self):
+        result = _yaml_quote("true")
+        assert result.startswith('"') and result.endswith('"')
+
+    def test_false_quoted(self):
+        result = _yaml_quote("false")
+        assert result.startswith('"') and result.endswith('"')
+
+    def test_null_quoted(self):
+        result = _yaml_quote("null")
+        assert result.startswith('"') and result.endswith('"')
+
+    def test_pure_integer_string_quoted(self):
+        # A string that looks like an integer should be quoted
+        result = _yaml_quote("123")
+        assert result.startswith('"') and result.endswith('"')
+
+    def test_pure_float_string_quoted(self):
+        result = _yaml_quote("3.14")
+        assert result.startswith('"') and result.endswith('"')
+
+
+# ---------------------------------------------------------------------------
+# Step 6: build_frontmatter
+# ---------------------------------------------------------------------------
+
+
+class TestBuildFrontmatterUsesConfigDefaults:
+    """Verification 1: no CLI overrides -> front_matter mirrors config defaults."""
+
+    def test_categories_from_config(self):
+        ctx = _make_fm_ctx()
+        build_frontmatter(ctx)
+        assert ctx.front_matter["categories"] == ["Notes"]
+
+    def test_tags_from_config(self):
+        ctx = _make_fm_ctx()
+        build_frontmatter(ctx)
+        assert ctx.front_matter["tags"] == ["notes"]
+
+    def test_image_from_config(self):
+        ctx = _make_fm_ctx()
+        build_frontmatter(ctx)
+        assert ctx.front_matter["image"] == {"path": "/assets/img/default.jpg"}
+
+    def test_title_from_ctx(self):
+        ctx = _make_fm_ctx(title="My Draft Title")
+        build_frontmatter(ctx)
+        assert ctx.front_matter["title"] == "My Draft Title"
+
+    def test_description_from_ctx(self):
+        ctx = _make_fm_ctx(description="A short blurb.")
+        build_frontmatter(ctx)
+        assert ctx.front_matter["description"] == "A short blurb."
+
+    def test_date_is_datetime(self):
+        ctx = _make_fm_ctx()
+        build_frontmatter(ctx)
+        assert isinstance(ctx.front_matter["date"], datetime)
+
+
+class TestBuildFrontmatterCliCategoriesOverrides:
+    """Verification 2: cli_categories not None -> overrides config default."""
+
+    def test_cli_list_overrides(self):
+        ctx = _make_fm_ctx(cli_categories=["A", "B"])
+        build_frontmatter(ctx)
+        assert ctx.front_matter["categories"] == ["A", "B"]
+
+    def test_cli_single_overrides(self):
+        ctx = _make_fm_ctx(cli_categories=["Tech"])
+        build_frontmatter(ctx)
+        assert ctx.front_matter["categories"] == ["Tech"]
+
+
+class TestBuildFrontmatterCliCategoriesExplicitEmpty:
+    """Verification 3: cli_categories=[] -> front_matter has empty list (force clear)."""
+
+    def test_explicit_empty_list(self):
+        ctx = _make_fm_ctx(cli_categories=[])
+        build_frontmatter(ctx)
+        assert ctx.front_matter["categories"] == []
+
+
+class TestBuildFrontmatterCliImageOverrides:
+    """Verification 4: cli_image provided -> image dict uses that path."""
+
+    def test_cli_image_path(self):
+        ctx = _make_fm_ctx(cli_image="/x.png")
+        build_frontmatter(ctx)
+        assert ctx.front_matter["image"] == {"path": "/x.png"}
+
+    def test_cli_image_overrides_config_default(self):
+        config = _make_fm_config(image_path="/assets/img/default.jpg")
+        ctx = _make_fm_ctx(cli_image="/custom.png", config=config)
+        build_frontmatter(ctx)
+        assert ctx.front_matter["image"]["path"] == "/custom.png"
+
+
+class TestBuildFrontmatterCliDateOverrides:
+    """Verification 5: cli_date set -> front_matter date uses it; ctx.publish_date also updated."""
+
+    def test_cli_date_in_front_matter(self):
+        specific = datetime(2026, 1, 15, 9, 0, 0).astimezone()
+        ctx = _make_fm_ctx(cli_date=specific)
+        build_frontmatter(ctx)
+        assert ctx.front_matter["date"] == specific
+
+    def test_ctx_publish_date_updated(self):
+        specific = datetime(2026, 1, 15, 9, 0, 0).astimezone()
+        ctx = _make_fm_ctx(cli_date=specific)
+        build_frontmatter(ctx)
+        assert ctx.publish_date == specific
+
+    def test_no_cli_date_uses_publish_date(self):
+        ctx = _make_fm_ctx(cli_date=None)
+        original = ctx.publish_date
+        build_frontmatter(ctx)
+        assert ctx.front_matter["date"] == original
+
+
+class TestBuildFrontmatterFieldOrder:
+    """Verification 6: dict keys order matches FIELD_ORDER."""
+
+    def test_keys_in_field_order(self):
+        ctx = _make_fm_ctx()
+        build_frontmatter(ctx)
+        assert list(ctx.front_matter.keys()) == FIELD_ORDER
+
+
+# ---------------------------------------------------------------------------
+# Step 6: serialize_frontmatter
+# ---------------------------------------------------------------------------
+
+
+class TestSerializeFrontmatterBasic:
+    """Verification 7: output starts and ends with ---."""
+
+    def test_starts_with_dashes(self):
+        fm = {
+            "title": "Hello",
+            "description": "A blurb",
+            "date": datetime(2026, 4, 19, 10, 0, 0).astimezone(),
+            "categories": ["Notes"],
+            "tags": ["AI"],
+            "image": {"path": "/assets/img/default.jpg"},
+        }
+        result = serialize_frontmatter(fm)
+        assert result.startswith("---\n")
+
+    def test_ends_with_dashes_newline(self):
+        fm = {
+            "title": "Hello",
+            "description": "A blurb",
+            "date": datetime(2026, 4, 19, 10, 0, 0).astimezone(),
+            "categories": ["Notes"],
+            "tags": ["AI"],
+            "image": {"path": "/assets/img/default.jpg"},
+        }
+        result = serialize_frontmatter(fm)
+        assert result.endswith("---\n")
+
+    def test_one_field_per_logical_entry(self):
+        fm = {
+            "title": "Hello",
+            "description": "A blurb",
+        }
+        result = serialize_frontmatter(fm)
+        lines = result.strip().split("\n")
+        # Should have: ---, title, description, ---
+        assert len(lines) == 4
+
+
+class TestSerializeFrontmatterImageNested:
+    """Verification 8: image renders as 2-line nested structure."""
+
+    def test_image_two_lines(self):
+        fm = {"image": {"path": "/assets/img/foo.png"}}
+        result = serialize_frontmatter(fm)
+        lines = [l for l in result.split("\n") if l.strip()]
+        # Look for "image:" and "  path: ..."
+        assert any(l == "image:" for l in lines)
+        assert any(l.startswith("  path:") for l in lines)
+
+    def test_image_path_value_present(self):
+        fm = {"image": {"path": "/assets/img/foo.png"}}
+        result = serialize_frontmatter(fm)
+        assert "/assets/img/foo.png" in result
+
+
+class TestSerializeFrontmatterListIndent:
+    """Verification 9: list fields render with 2-space bullet indent."""
+
+    def test_categories_rendered_as_list(self):
+        fm = {"categories": ["a", "b"]}
+        result = serialize_frontmatter(fm)
+        assert "categories:\n  - a\n  - b" in result
+
+    def test_tags_rendered_as_list(self):
+        fm = {"tags": ["x", "y", "z"]}
+        result = serialize_frontmatter(fm)
+        assert "tags:\n  - x\n  - y\n  - z" in result
+
+
+class TestSerializeFrontmatterEmptyList:
+    """Verification 10: empty list renders as `key: []`."""
+
+    def test_empty_categories(self):
+        fm = {"categories": []}
+        result = serialize_frontmatter(fm)
+        assert "categories: []" in result
+
+    def test_empty_tags(self):
+        fm = {"tags": []}
+        result = serialize_frontmatter(fm)
+        assert "tags: []" in result
+
+
+class TestSerializeFrontmatterDateFormat:
+    """Verification 11: datetime renders as YYYY-MM-DD HH:MM:SS +HHMM."""
+
+    def test_date_format_utc_offset(self):
+        import datetime as dt_module
+        # Create a fixed-offset aware datetime at +0800
+        tz = dt_module.timezone(dt_module.timedelta(hours=8))
+        d = datetime(2026, 4, 19, 10, 0, 0, tzinfo=tz)
+        fm = {"date": d}
+        result = serialize_frontmatter(fm)
+        assert "date: 2026-04-19 10:00:00 +0800" in result
+
+
+class TestSerializeFrontmatterQuotesSpecialChars:
+    """Verification 12: title/description with special chars gets quoted."""
+
+    def test_colon_in_title_quoted(self):
+        fm = {"title": "My Post: A Story"}
+        result = serialize_frontmatter(fm)
+        assert 'title: "My Post: A Story"' in result
+
+    def test_double_quote_in_title_escaped(self):
+        fm = {"title": 'Say "hello"'}
+        result = serialize_frontmatter(fm)
+        # The value should be double-quoted with inner quotes escaped
+        assert 'title: "Say \\"hello\\""' in result
+
+    def test_plain_chinese_not_quoted(self):
+        fm = {"title": "纯中文标题"}
+        result = serialize_frontmatter(fm)
+        assert "title: 纯中文标题" in result
+
+    def test_mixed_chinese_with_fullwidth_colon_bare(self):
+        # Full-width colon U+FF1A is NOT a YAML structural character; no quoting needed.
+        fm = {"title": "从 LLM 到 Agent：以 Harness 为骨架的 0-1 工程路线"}
+        result = serialize_frontmatter(fm)
+        title_line = [l for l in result.split("\n") if l.startswith("title:")][0]
+        # Should be a bare value, no surrounding double-quotes
+        assert title_line == "title: 从 LLM 到 Agent：以 Harness 为骨架的 0-1 工程路线"
+
+    def test_ascii_colon_in_title_quoted(self):
+        # ASCII colon is a YAML structural character and must trigger quoting
+        fm = {"title": "My Post: A Story"}
+        result = serialize_frontmatter(fm)
+        assert 'title: "My Post: A Story"' in result
+
+
+class TestSerializeFrontmatterQuotesYamlKeywords:
+    """Verification 13: YAML keyword lookalikes are quoted to prevent misinterpretation."""
+
+    def test_yes_in_title_quoted(self):
+        fm = {"title": "yes"}
+        result = serialize_frontmatter(fm)
+        assert 'title: "yes"' in result
+
+    def test_null_in_title_quoted(self):
+        fm = {"title": "null"}
+        result = serialize_frontmatter(fm)
+        assert 'title: "null"' in result
+
+    def test_pure_number_in_title_quoted(self):
+        fm = {"title": "123"}
+        result = serialize_frontmatter(fm)
+        assert 'title: "123"' in result
+
+
+class TestSerializeFrontmatterKeepsRealPostStyle:
+    """Verification 14: output matches 2026-04-19-agent-engineering-with-harness.md header style."""
+
+    def test_real_post_style(self):
+        import datetime as dt_module
+        tz = dt_module.timezone(dt_module.timedelta(hours=8))
+        d = datetime(2026, 4, 19, 10, 0, 0, tzinfo=tz)
+        fm = {
+            "title": "从 LLM 到 Agent：以 Harness 为骨架的 0-1 工程路线",
+            "description": (
+                "过去一年的 Agent 项目里，决定生产可靠性的不是模型选型，"
+                "而是 Harness 工程。这篇梳理底层机制、四类设计模式、多智能体边界、"
+                "框架取舍与一条按 Prompt-Context-Harness 三层递进的学习路径。"
+            ),
+            "date": d,
+            "categories": ["Notes"],
+            "tags": ["AI"],
+            "image": {"path": "/assets/img/agentic-ai.png"},
+        }
+        result = serialize_frontmatter(fm)
+        # Field order check
+        keys_in_output = [
+            l.split(":")[0].strip()
+            for l in result.split("\n")
+            if l and not l.startswith(" ") and l != "---" and ":" in l
+        ]
+        assert keys_in_output == ["title", "description", "date", "categories", "tags", "image"]
+        # Nested image style
+        assert "image:\n  path:" in result
+        # List style
+        assert "categories:\n  - Notes" in result
+        assert "tags:\n  - AI" in result
+        # Date format
+        assert "date: 2026-04-19 10:00:00 +0800" in result
+        # Title uses full-width colon (U+FF1A) which is not a YAML structural character
+        # -> bare value, no surrounding quotes, matching real post style
+        assert "title: 从 LLM 到 Agent：以 Harness 为骨架的 0-1 工程路线" in result
+        assert 'title: "从 LLM 到 Agent：以 Harness 为骨架的 0-1 工程路线"' not in result
+
+
+# ---------------------------------------------------------------------------
+# Step 6: run() integration through build_frontmatter
+# ---------------------------------------------------------------------------
+
+
+class TestRunPipelineThroughFrontmatter:
+    """Verification 18: end-to-end run builds ctx.front_matter."""
+
+    def test_front_matter_populated_after_run(self, tmp_path: Path):
+        # Build a minimal repo
+        repo = _make_image_repo(tmp_path)
+        draft = repo / "_drafts" / "my-post.md"
+        draft.write_text("# My Post\n\nSome content here.\n", encoding="utf-8")
+
+        rc = run([
+            "--file", "my-post",
+            "--slug", "my-post",
+            "--src", str(repo / "_drafts"),
+        ])
+        assert rc == 0
+
+    def test_front_matter_has_all_fields(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        draft = repo / "_drafts" / "test-post.md"
+        draft.write_text("# Test Post\n\nContent for testing.\n", encoding="utf-8")
+
+        # Patch run to return ctx for inspection
+        import publish as pub
+        captured: list[pub.PublishContext] = []
+        original_build = pub.build_frontmatter
+
+        def capturing_build(ctx: pub.PublishContext) -> None:
+            original_build(ctx)
+            captured.append(ctx)
+
+        pub.build_frontmatter = capturing_build
+        try:
+            rc = run([
+                "--file", "test-post",
+                "--slug", "test-post",
+                "--src", str(repo / "_drafts"),
+            ])
+        finally:
+            pub.build_frontmatter = original_build
+
+        assert rc == 0
+        assert len(captured) == 1
+        fm = captured[0].front_matter
+        for field in FIELD_ORDER:
+            assert field in fm, f"Missing field: {field}"
