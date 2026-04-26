@@ -1,4 +1,4 @@
-"""Tests for publish.py - Step 1: config and error types. Step 2: CLI and context. Step 3: draft loader and title resolver. Step 4: description extractor."""
+"""Tests for publish.py - Step 1: config and error types. Step 2: CLI and context. Step 3: draft loader and title resolver. Step 4: description extractor. Step 5: image scanner and link rewriter."""
 import sys
 from datetime import datetime
 from io import StringIO
@@ -10,6 +10,7 @@ from publish import (
     ConfigParseError,
     DraftHasFrontMatterError,
     DraftNotFoundError,
+    ImageMove,
     ImageNameConflictError,
     ImageSourceMissingError,
     InvalidSlugError,
@@ -17,10 +18,13 @@ from publish import (
     PublishContext,
     PublishError,
     TargetPostExistsError,
+    classify_path,
     extract_description,
+    hashes_equal,
     load_draft,
     parse_args,
     parse_list,
+    process_images,
     resolve_title,
     run,
     strip_markdown_inline,
@@ -1183,3 +1187,584 @@ class TestStripMarkdownInlineMixedBoldItalic:
 
     def test_single_asterisk_only(self):
         assert strip_markdown_inline("*x*") == "x"
+
+
+# ---------------------------------------------------------------------------
+# Step 5: classify_path
+# ---------------------------------------------------------------------------
+
+
+class TestClassifyPathBasic:
+    """classify_path returns 'remote', 'absolute', or 'relative' for various inputs."""
+
+    def test_http_url_is_remote(self):
+        assert classify_path("http://example.com/img.png") == "remote"
+
+    def test_https_url_is_remote(self):
+        assert classify_path("https://cdn.example.com/img.png") == "remote"
+
+    def test_slash_prefix_is_absolute(self):
+        assert classify_path("/Users/kyle/images/foo.png") == "absolute"
+
+    def test_tilde_prefix_is_absolute(self):
+        assert classify_path("~/Pictures/img.png") == "absolute"
+
+    def test_relative_dot_slash(self):
+        assert classify_path("./local/img.png") == "relative"
+
+    def test_relative_no_prefix(self):
+        assert classify_path("local/img.png") == "relative"
+
+    def test_relative_double_dot(self):
+        assert classify_path("../images/img.png") == "relative"
+
+
+# ---------------------------------------------------------------------------
+# Step 5: hashes_equal
+# ---------------------------------------------------------------------------
+
+
+class TestHashesEqual:
+    """hashes_equal compares two files by sha1 content hash."""
+
+    def test_same_content_returns_true(self, tmp_path: Path):
+        a = tmp_path / "a.png"
+        b = tmp_path / "b.png"
+        a.write_bytes(b"same content here")
+        b.write_bytes(b"same content here")
+        assert hashes_equal(a, b) is True
+
+    def test_different_content_returns_false(self, tmp_path: Path):
+        a = tmp_path / "a.png"
+        b = tmp_path / "b.png"
+        a.write_bytes(b"content A")
+        b.write_bytes(b"content B")
+        assert hashes_equal(a, b) is False
+
+    def test_empty_files_are_equal(self, tmp_path: Path):
+        a = tmp_path / "a.png"
+        b = tmp_path / "b.png"
+        a.write_bytes(b"")
+        b.write_bytes(b"")
+        assert hashes_equal(a, b) is True
+
+    def test_empty_vs_non_empty_returns_false(self, tmp_path: Path):
+        a = tmp_path / "a.png"
+        b = tmp_path / "b.png"
+        a.write_bytes(b"")
+        b.write_bytes(b"data")
+        assert hashes_equal(a, b) is False
+
+
+# ---------------------------------------------------------------------------
+# Step 5 fixtures and helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_image_repo(tmp_path: Path) -> Path:
+    """Create a minimal repo layout under tmp_path and return repo_root."""
+    (tmp_path / "_drafts").mkdir()
+    (tmp_path / "_posts").mkdir()
+    (tmp_path / "_data").mkdir()
+    (tmp_path / "assets" / "img" / "posts").mkdir(parents=True)
+    (tmp_path / "_data" / "publish.yml").write_text(
+        "defaults: {}\n", encoding="utf-8"
+    )
+    return tmp_path
+
+
+def _make_image_ctx(
+    repo: Path,
+    body: str,
+    slug: str = "my-post",
+    filename: str = "post.md",
+) -> PublishContext:
+    """Build a PublishContext with config and raw_body ready for process_images."""
+    src_dir = repo / "_drafts"
+    ctx = PublishContext(
+        draft_file=src_dir / filename,
+        slug=slug,
+        src_dir=src_dir,
+        cli_categories=None,
+        cli_tags=None,
+        cli_image=None,
+        cli_description=None,
+        cli_date=None,
+        dry_run=False,
+        force=False,
+        verbose=False,
+    )
+    ctx.raw_body = body
+    ctx.config = PublishConfig(
+        default_categories=[],
+        default_tags=[],
+        default_image_path="/assets/img/default.jpg",
+        default_description="",
+        desc_max_length=160,
+        desc_strip_markdown=True,
+        images_posts_dir=Path("assets/img/posts"),
+        images_url_prefix="/assets/img/posts",
+        posts_dir=Path("_posts"),
+        slug_pattern="^[a-z0-9][a-z0-9-]*$",
+        fail_on_existing_post=True,
+    )
+    return ctx
+
+
+# ---------------------------------------------------------------------------
+# Step 5: process_images -- markdown absolute path
+# ---------------------------------------------------------------------------
+
+
+class TestProcessImagesMdAbsolute:
+    """Verification 1: markdown absolute path generates ImageMove and rewrites link."""
+
+    def test_image_plan_has_one_move(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        img_dir = tmp_path / "ext_images"
+        img_dir.mkdir()
+        img = img_dir / "foo.png"
+        img.write_bytes(b"fake png data")
+
+        body = f"![alt]({img})"
+        ctx = _make_image_ctx(repo, body)
+        process_images(ctx)
+        assert len(ctx.image_plan) == 1
+
+    def test_image_move_source_is_absolute(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        img_dir = tmp_path / "ext_images"
+        img_dir.mkdir()
+        img = img_dir / "foo.png"
+        img.write_bytes(b"fake png data")
+
+        body = f"![alt]({img})"
+        ctx = _make_image_ctx(repo, body)
+        process_images(ctx)
+        assert ctx.image_plan[0].source == img
+
+    def test_image_move_target_path(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        img_dir = tmp_path / "ext_images"
+        img_dir.mkdir()
+        img = img_dir / "foo.png"
+        img.write_bytes(b"fake png data")
+
+        body = f"![alt]({img})"
+        ctx = _make_image_ctx(repo, body, slug="my-post")
+        process_images(ctx)
+        expected_target = repo / "assets" / "img" / "posts" / "my-post" / "foo.png"
+        assert ctx.image_plan[0].target == expected_target
+
+    def test_image_move_new_url(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        img_dir = tmp_path / "ext_images"
+        img_dir.mkdir()
+        img = img_dir / "foo.png"
+        img.write_bytes(b"fake png data")
+
+        body = f"![alt]({img})"
+        ctx = _make_image_ctx(repo, body, slug="my-post")
+        process_images(ctx)
+        assert ctx.image_plan[0].new_url == "/assets/img/posts/my-post/foo.png"
+
+    def test_rewritten_body_has_new_url(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        img_dir = tmp_path / "ext_images"
+        img_dir.mkdir()
+        img = img_dir / "foo.png"
+        img.write_bytes(b"fake png data")
+
+        body = f"![alt]({img})"
+        ctx = _make_image_ctx(repo, body, slug="my-post")
+        process_images(ctx)
+        assert "/assets/img/posts/my-post/foo.png" in ctx.rewritten_body
+        assert str(img) not in ctx.rewritten_body
+
+
+# ---------------------------------------------------------------------------
+# Step 5: process_images -- tilde home path
+# ---------------------------------------------------------------------------
+
+
+class TestProcessImagesMdHomePath:
+    """Verification 2: ~/dir/img.png is expanded and processed as absolute."""
+
+    def test_home_path_processed(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        # Use a real file under a known absolute path rather than actual ~
+        img_dir = tmp_path / "ext_images"
+        img_dir.mkdir()
+        img = img_dir / "img.png"
+        img.write_bytes(b"data")
+
+        # Simulate a body with an absolute path (since ~ expansion in tests depends on HOME)
+        body = f"![alt]({img})"
+        ctx = _make_image_ctx(repo, body, slug="my-post")
+        process_images(ctx)
+        assert len(ctx.image_plan) == 1
+        assert ctx.image_plan[0].new_url == "/assets/img/posts/my-post/img.png"
+
+    def test_tilde_expansion_via_monkeypatch(self, tmp_path: Path, monkeypatch):
+        """Verify ~ prefix triggers expanduser: monkeypatch HOME to tmp_path."""
+        import os
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        repo = _make_image_repo(tmp_path)
+        img = tmp_path / "img.png"
+        img.write_bytes(b"tilde image data")
+
+        body = "![alt](~/img.png)"
+        ctx = _make_image_ctx(repo, body, slug="tilde-post")
+        process_images(ctx)
+        assert len(ctx.image_plan) == 1
+        assert ctx.image_plan[0].new_url == "/assets/img/posts/tilde-post/img.png"
+        assert "~/img.png" not in ctx.rewritten_body
+
+
+# ---------------------------------------------------------------------------
+# Step 5: process_images -- relative path unchanged
+# ---------------------------------------------------------------------------
+
+
+class TestProcessImagesMdRelativeUnchanged:
+    """Verification 3: relative paths are not added to image_plan and remain unchanged."""
+
+    def test_relative_not_in_image_plan(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        body = "![alt](./local/img.png)"
+        ctx = _make_image_ctx(repo, body)
+        process_images(ctx)
+        assert ctx.image_plan == []
+
+    def test_relative_link_unchanged_in_rewritten_body(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        body = "![alt](./local/img.png)"
+        ctx = _make_image_ctx(repo, body)
+        process_images(ctx)
+        assert "./local/img.png" in ctx.rewritten_body
+
+
+# ---------------------------------------------------------------------------
+# Step 5: process_images -- remote URL unchanged
+# ---------------------------------------------------------------------------
+
+
+class TestProcessImagesMdRemoteUnchanged:
+    """Verification 4: remote https:// URLs are not touched."""
+
+    def test_remote_not_in_image_plan(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        body = "![alt](https://cdn.example.com/img.png)"
+        ctx = _make_image_ctx(repo, body)
+        process_images(ctx)
+        assert ctx.image_plan == []
+
+    def test_remote_link_unchanged_in_rewritten_body(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        body = "![alt](https://cdn.example.com/img.png)"
+        ctx = _make_image_ctx(repo, body)
+        process_images(ctx)
+        assert "https://cdn.example.com/img.png" in ctx.rewritten_body
+
+
+# ---------------------------------------------------------------------------
+# Step 5: process_images -- HTML img tag
+# ---------------------------------------------------------------------------
+
+
+class TestProcessImagesHtmlImg:
+    """Verification 5: HTML img tags are handled same as markdown images."""
+
+    def test_html_img_plan_generated(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        img_dir = tmp_path / "ext_images"
+        img_dir.mkdir()
+        img = img_dir / "foo.jpg"
+        img.write_bytes(b"jpeg data")
+
+        body = f'<img src="{img}" width="200">'
+        ctx = _make_image_ctx(repo, body, slug="html-post")
+        process_images(ctx)
+        assert len(ctx.image_plan) == 1
+        assert ctx.image_plan[0].new_url == "/assets/img/posts/html-post/foo.jpg"
+
+    def test_html_img_attributes_preserved(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        img_dir = tmp_path / "ext_images"
+        img_dir.mkdir()
+        img = img_dir / "foo.jpg"
+        img.write_bytes(b"jpeg data")
+
+        body = f'<img src="{img}" width="200">'
+        ctx = _make_image_ctx(repo, body, slug="html-post")
+        process_images(ctx)
+        # The rewritten body should preserve 'width="200"' attribute
+        assert 'width="200"' in ctx.rewritten_body
+
+    def test_html_img_src_rewritten(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        img_dir = tmp_path / "ext_images"
+        img_dir.mkdir()
+        img = img_dir / "foo.jpg"
+        img.write_bytes(b"jpeg data")
+
+        body = f'<img src="{img}" width="200">'
+        ctx = _make_image_ctx(repo, body, slug="html-post")
+        process_images(ctx)
+        assert "/assets/img/posts/html-post/foo.jpg" in ctx.rewritten_body
+        assert str(img) not in ctx.rewritten_body
+
+
+# ---------------------------------------------------------------------------
+# Step 5: process_images -- missing source raises
+# ---------------------------------------------------------------------------
+
+
+class TestProcessImagesMissingSourceRaises:
+    """Verification 6: non-existent source raises ImageSourceMissingError listing all missing paths."""
+
+    def test_raises_image_source_missing_error(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        body = "![alt](/nonexistent/nowhere/img.png)"
+        ctx = _make_image_ctx(repo, body)
+        with pytest.raises(ImageSourceMissingError):
+            process_images(ctx)
+
+    def test_error_message_contains_missing_path(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        body = "![alt](/nonexistent/nowhere/img.png)"
+        ctx = _make_image_ctx(repo, body)
+        with pytest.raises(ImageSourceMissingError) as exc_info:
+            process_images(ctx)
+        assert "/nonexistent/nowhere/img.png" in str(exc_info.value)
+
+    def test_error_lists_all_missing_paths(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        body = (
+            "![a](/no/a.png)\n"
+            "![b](/no/b.png)\n"
+        )
+        ctx = _make_image_ctx(repo, body)
+        with pytest.raises(ImageSourceMissingError) as exc_info:
+            process_images(ctx)
+        msg = str(exc_info.value)
+        assert "/no/a.png" in msg
+        assert "/no/b.png" in msg
+
+
+# ---------------------------------------------------------------------------
+# Step 5: process_images -- dedup same source
+# ---------------------------------------------------------------------------
+
+
+class TestProcessImagesDedupSameSource:
+    """Verification 7: same source referenced twice -> one ImageMove, both links rewritten."""
+
+    def test_only_one_image_move_generated(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        img_dir = tmp_path / "ext_images"
+        img_dir.mkdir()
+        img = img_dir / "shared.png"
+        img.write_bytes(b"shared image data")
+
+        body = f"![first]({img})\n\n![second]({img})"
+        ctx = _make_image_ctx(repo, body, slug="my-post")
+        process_images(ctx)
+        assert len(ctx.image_plan) == 1
+
+    def test_both_links_rewritten(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        img_dir = tmp_path / "ext_images"
+        img_dir.mkdir()
+        img = img_dir / "shared.png"
+        img.write_bytes(b"shared image data")
+
+        body = f"![first]({img})\n\n![second]({img})"
+        ctx = _make_image_ctx(repo, body, slug="my-post")
+        process_images(ctx)
+        # The original absolute path should not appear in rewritten_body at all
+        assert str(img) not in ctx.rewritten_body
+        # Both references converted to new URL
+        new_url = "/assets/img/posts/my-post/shared.png"
+        assert ctx.rewritten_body.count(new_url) == 2
+
+
+# ---------------------------------------------------------------------------
+# Step 5: process_images -- target exists same hash -> skip_copy
+# ---------------------------------------------------------------------------
+
+
+class TestProcessImagesTargetExistsSameHashSkip:
+    """Verification 8: target already exists with same content -> ImageMove.skip_copy=True."""
+
+    def test_skip_copy_true_when_same_hash(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        img_dir = tmp_path / "ext_images"
+        img_dir.mkdir()
+        img = img_dir / "foo.png"
+        content = b"same image content"
+        img.write_bytes(content)
+
+        # Pre-create the target with same content
+        target_dir = repo / "assets" / "img" / "posts" / "my-post"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        (target_dir / "foo.png").write_bytes(content)
+
+        body = f"![alt]({img})"
+        ctx = _make_image_ctx(repo, body, slug="my-post")
+        process_images(ctx)
+        assert len(ctx.image_plan) == 1
+        assert ctx.image_plan[0].skip_copy is True
+
+
+# ---------------------------------------------------------------------------
+# Step 5: process_images -- target exists different hash -> raises
+# ---------------------------------------------------------------------------
+
+
+class TestProcessImagesTargetExistsDiffHashRaises:
+    """Verification 9: target already exists with different content -> ImageNameConflictError."""
+
+    def test_raises_image_name_conflict_error(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        img_dir = tmp_path / "ext_images"
+        img_dir.mkdir()
+        img = img_dir / "foo.png"
+        img.write_bytes(b"source content")
+
+        # Pre-create target with different content
+        target_dir = repo / "assets" / "img" / "posts" / "my-post"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        (target_dir / "foo.png").write_bytes(b"different content")
+
+        body = f"![alt]({img})"
+        ctx = _make_image_ctx(repo, body, slug="my-post")
+        with pytest.raises(ImageNameConflictError):
+            process_images(ctx)
+
+    def test_error_message_contains_both_paths(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        img_dir = tmp_path / "ext_images"
+        img_dir.mkdir()
+        img = img_dir / "foo.png"
+        img.write_bytes(b"source content")
+
+        target_dir = repo / "assets" / "img" / "posts" / "my-post"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        (target_dir / "foo.png").write_bytes(b"different content")
+
+        body = f"![alt]({img})"
+        ctx = _make_image_ctx(repo, body, slug="my-post")
+        with pytest.raises(ImageNameConflictError) as exc_info:
+            process_images(ctx)
+        msg = str(exc_info.value)
+        assert str(img) in msg or "foo.png" in msg
+
+
+# ---------------------------------------------------------------------------
+# Step 5: process_images -- markdown image with title attribute
+# ---------------------------------------------------------------------------
+
+
+class TestProcessImagesMdWithTitle:
+    """Verification 10: ![alt](path "title") still correctly extracts path."""
+
+    def test_path_extracted_from_titled_md_image(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        img_dir = tmp_path / "ext_images"
+        img_dir.mkdir()
+        img = img_dir / "titled.png"
+        img.write_bytes(b"titled image")
+
+        body = f'![alt]({img} "My Title")'
+        ctx = _make_image_ctx(repo, body, slug="my-post")
+        process_images(ctx)
+        assert len(ctx.image_plan) == 1
+        assert ctx.image_plan[0].new_url == "/assets/img/posts/my-post/titled.png"
+
+    def test_title_preserved_in_rewritten_body(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        img_dir = tmp_path / "ext_images"
+        img_dir.mkdir()
+        img = img_dir / "titled.png"
+        img.write_bytes(b"titled image")
+
+        body = f'![alt]({img} "My Title")'
+        ctx = _make_image_ctx(repo, body, slug="my-post")
+        process_images(ctx)
+        # Title should remain in rewritten body
+        assert '"My Title"' in ctx.rewritten_body
+
+
+# ---------------------------------------------------------------------------
+# Step 5: process_images -- Chinese alt text
+# ---------------------------------------------------------------------------
+
+
+class TestProcessImagesMdChineseAlt:
+    """Verification 11: Chinese alt text is handled normally."""
+
+    def test_chinese_alt_processed(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        img_dir = tmp_path / "ext_images"
+        img_dir.mkdir()
+        img = img_dir / "zh.png"
+        img.write_bytes(b"image data")
+
+        body = f"![中文描述]({img})"
+        ctx = _make_image_ctx(repo, body, slug="my-post")
+        process_images(ctx)
+        assert len(ctx.image_plan) == 1
+
+    def test_chinese_alt_preserved_in_rewritten_body(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        img_dir = tmp_path / "ext_images"
+        img_dir.mkdir()
+        img = img_dir / "zh.png"
+        img.write_bytes(b"image data")
+
+        body = f"![中文描述]({img})"
+        ctx = _make_image_ctx(repo, body, slug="my-post")
+        process_images(ctx)
+        assert "中文描述" in ctx.rewritten_body
+
+
+# ---------------------------------------------------------------------------
+# Step 5: process_images -- end-to-end via run()
+# ---------------------------------------------------------------------------
+
+
+class TestRunPipelineThroughImages:
+    """Verification 15: run() goes through process_images; ctx.image_plan and rewritten_body set."""
+
+    def test_run_exits_zero_with_absolute_image(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        img_dir = tmp_path / "ext_images"
+        img_dir.mkdir()
+        img = img_dir / "cover.png"
+        img.write_bytes(b"image bytes")
+
+        draft = repo / "_drafts" / "my-draft.md"
+        draft.write_text(
+            f"# Title\n\nSome text.\n\n![cover]({img})\n",
+            encoding="utf-8",
+        )
+
+        ret = run(
+            ["--file", "my-draft", "--slug", "my-post", "--src", str(repo / "_drafts")]
+        )
+        assert ret == 0
+
+    def test_run_returns_nonzero_when_image_missing(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        draft = repo / "_drafts" / "my-draft.md"
+        draft.write_text(
+            "# Title\n\nText.\n\n![img](/no/such/img.png)\n",
+            encoding="utf-8",
+        )
+
+        ret = run(
+            ["--file", "my-draft", "--slug", "my-post", "--src", str(repo / "_drafts")]
+        )
+        assert ret != 0

@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import os
 import re
 import sys
 from dataclasses import dataclass, field
@@ -132,6 +134,21 @@ class PublishConfig:
                 validation_cfg.get("fail_on_existing_post", True)
             ),
         )
+
+
+# ---------------------------------------------------------------------------
+# ImageMove
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ImageMove:
+    """Single image copy instruction produced by process_images."""
+
+    source: Path        # absolute path to the draft-side source file
+    target: Path        # destination: assets/img/posts/<slug>/<basename>
+    new_url: str        # rewritten URL: /assets/img/posts/<slug>/<basename>
+    skip_copy: bool = False  # True when target already exists with identical content
 
 
 # ---------------------------------------------------------------------------
@@ -464,6 +481,164 @@ def extract_description(ctx: "PublishContext") -> None:
 
 
 # ---------------------------------------------------------------------------
+# Image processing helpers
+# ---------------------------------------------------------------------------
+
+# Matches markdown image syntax: ![alt](path) or ![alt](path "title")
+# path uses [^)\s]+ to exclude whitespace and closing paren (no nested parens supported)
+MD_IMG = re.compile(
+    r"!\[(?P<alt>[^\]]*)\]\((?P<path>[^)\s]+)(?:\s+\"[^\"]*\")?\)"
+)
+
+# Matches HTML <img src="path"> with optional other attributes; case-insensitive
+HTML_IMG = re.compile(
+    r'<img\s+[^>]*?src=(["\'])(?P<path>[^"\']+)\1[^>]*>',
+    re.IGNORECASE,
+)
+
+
+def classify_path(p: str) -> str:
+    """Classify an image path as 'remote', 'absolute', or 'relative'.
+
+    remote   -> starts with http:// or https://
+    absolute -> starts with / or ~
+    relative -> everything else
+    """
+    if re.match(r"^https?://", p):
+        return "remote"
+    if p.startswith("/") or p.startswith("~"):
+        return "absolute"
+    return "relative"
+
+
+def hashes_equal(a: Path, b: Path, chunk: int = 65536) -> bool:
+    """Return True if files *a* and *b* have the same SHA-1 digest.
+
+    Reads both files in streaming chunks to avoid loading large images into memory.
+    """
+    def _sha1(p: Path) -> str:
+        m = hashlib.sha1()
+        with p.open("rb") as f:
+            for blk in iter(lambda: f.read(chunk), b""):
+                m.update(blk)
+        return m.hexdigest()
+
+    return _sha1(a) == _sha1(b)
+
+
+def process_images(ctx: "PublishContext") -> None:
+    """Scan ctx.raw_body for image references, build ctx.image_plan, rewrite ctx.rewritten_body.
+
+    Processing rules:
+    - remote URLs (http/https): left untouched, not added to image_plan
+    - relative paths: left untouched, not added to image_plan
+    - absolute paths (/ or ~): expanded, resolved, added to image_plan, link rewritten
+
+    Raises ImageSourceMissingError if any absolute-path source does not exist on disk.
+    Raises ImageNameConflictError if a target already exists with different content.
+
+    Does NOT copy files -- copying is handled in commit_filesystem (Step 7).
+    """
+    config = ctx.config
+    repo_root = ctx.src_dir.parent
+
+    # Collect all matches from both syntaxes
+    all_matches: list[tuple[re.Match, str]] = []
+    for m in MD_IMG.finditer(ctx.raw_body):
+        all_matches.append((m, "md"))
+    for m in HTML_IMG.finditer(ctx.raw_body):
+        all_matches.append((m, "html"))
+
+    # First pass: resolve all absolute paths, check existence, detect conflicts
+    # seen_source maps resolved source Path -> ImageMove (for dedup)
+    seen_source: dict[Path, ImageMove] = {}
+    missing: list[str] = []
+
+    for m, syntax in all_matches:
+        raw_path = m.group("path")
+        kind = classify_path(raw_path)
+
+        if kind != "absolute":
+            continue
+
+        # Expand ~ and resolve to absolute path
+        expanded = os.path.expanduser(raw_path)
+        source = Path(expanded).resolve()
+
+        if source in seen_source:
+            # Already processed this source; skip duplicate resolution
+            continue
+
+        if not source.exists():
+            missing.append(raw_path)
+            continue
+
+        basename = source.name
+        target = repo_root / config.images_posts_dir / ctx.slug / basename
+        new_url = f"{config.images_url_prefix}/{ctx.slug}/{basename}"
+
+        skip_copy = False
+        if target.exists():
+            if hashes_equal(source, target):
+                skip_copy = True
+            else:
+                raise ImageNameConflictError(
+                    f"image name conflict: source '{source}' vs existing target '{target}' have different content",
+                    suggestion=(
+                        f"rename the source image or remove '{target}' before publishing"
+                    ),
+                )
+
+        move = ImageMove(source=source, target=target, new_url=new_url, skip_copy=skip_copy)
+        seen_source[source] = move
+
+    if missing:
+        paths_str = ", ".join(missing)
+        raise ImageSourceMissingError(
+            f"image source file(s) not found: {paths_str}",
+            suggestion="check that all absolute image paths exist on disk before publishing",
+        )
+
+    ctx.image_plan = list(seen_source.values())
+
+    # Build a lookup from resolved source path -> new_url for the rewrite step
+    source_to_url: dict[Path, str] = {
+        move.source: move.new_url for move in ctx.image_plan
+    }
+
+    # Second pass: rewrite body text
+    def _rewrite_md(m: re.Match) -> str:
+        raw_path = m.group("path")
+        if classify_path(raw_path) != "absolute":
+            return m.group(0)
+        source = Path(os.path.expanduser(raw_path)).resolve()
+        new_url = source_to_url.get(source)
+        if new_url is None:
+            return m.group(0)
+        # Reconstruct markdown image, keeping alt and optional title
+        original = m.group(0)
+        # Replace only the path portion
+        return original.replace(raw_path, new_url, 1)
+
+    def _rewrite_html(m: re.Match) -> str:
+        raw_path = m.group("path")
+        if classify_path(raw_path) != "absolute":
+            return m.group(0)
+        source = Path(os.path.expanduser(raw_path)).resolve()
+        new_url = source_to_url.get(source)
+        if new_url is None:
+            return m.group(0)
+        # Replace only the path portion inside the src attribute value
+        original = m.group(0)
+        return original.replace(raw_path, new_url, 1)
+
+    body = ctx.raw_body
+    body = MD_IMG.sub(_rewrite_md, body)
+    body = HTML_IMG.sub(_rewrite_html, body)
+    ctx.rewritten_body = body
+
+
+# ---------------------------------------------------------------------------
 # Pipeline entry point
 # ---------------------------------------------------------------------------
 
@@ -480,6 +655,7 @@ def run(argv: list[str]) -> int:
         load_draft(ctx)
         resolve_title(ctx)
         extract_description(ctx)
+        process_images(ctx)
         # Subsequent pipeline steps added in later steps.
         return 0
     except PublishError as e:
