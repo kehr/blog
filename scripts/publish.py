@@ -369,6 +369,94 @@ def resolve_title(ctx: "PublishContext") -> None:
 
 
 # ---------------------------------------------------------------------------
+# Pipeline steps: description extraction
+# ---------------------------------------------------------------------------
+
+
+def strip_markdown_inline(s: str) -> str:
+    """Remove inline markdown marks from *s*, preserving the visible text.
+
+    Handles: [text](url) links, `code`, **bold**, *italic*, ***both***,
+    __bold__, _italic_.  Applied in order: links first, then code spans,
+    then asterisk sequences, then underscore sequences.
+    """
+    s = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", s)  # [text](url) -> text
+    s = re.sub(r"`([^`]+)`", r"\1", s)               # `code` -> code
+    s = re.sub(r"\*{1,3}([^*]+)\*{1,3}", r"\1", s)   # **bold** *italic* ***both***
+    s = re.sub(r"_{1,2}([^_]+)_{1,2}", r"\1", s)     # __bold__ _italic_
+    return s.strip()
+
+
+def extract_description(ctx: "PublishContext") -> None:
+    """Fill ctx.description according to PRD 3.4 priority rules.
+
+    Priority order:
+    1. CLI explicit value (ctx.cli_description is not None) -- used verbatim,
+       empty string is treated as force-clear (no extraction).
+    2. Config default (ctx.config.default_description != "") -- used as-is.
+    3. Auto-extract from ctx.raw_body:
+       - Skip leading blank lines.
+       - If first non-empty line starts with '# ', skip it (H1 title).
+       - Skip blank lines after H1.
+       - Collect the first consecutive non-empty paragraph, join with spaces.
+       - Strip inline markdown if ctx.config.desc_strip_markdown is True.
+       - Truncate to ctx.config.desc_max_length characters and rstrip.
+    4. If no extractable content found, set "" and emit a stderr warning.
+    """
+    # Priority 1: CLI explicit value (includes empty string as force-clear)
+    if ctx.cli_description is not None:
+        ctx.description = ctx.cli_description
+        return
+
+    # Priority 2: non-empty config default
+    if ctx.config.default_description != "":
+        ctx.description = ctx.config.default_description
+        return
+
+    # Priority 3: auto-extract from raw body
+    lines = ctx.raw_body.splitlines()
+    idx = 0
+    total = len(lines)
+
+    # Skip leading blank lines
+    while idx < total and lines[idx].strip() == "":
+        idx += 1
+
+    # Skip H1 line if present
+    if idx < total and lines[idx].startswith("# "):
+        idx += 1
+
+    # Skip blank lines after H1
+    while idx < total and lines[idx].strip() == "":
+        idx += 1
+
+    # Collect first consecutive non-empty paragraph
+    para_lines: list[str] = []
+    while idx < total and lines[idx].strip() != "":
+        para_lines.append(lines[idx].strip())
+        idx += 1
+
+    if not para_lines:
+        # Priority 4: no extractable content
+        ctx.description = ""
+        print("warning: draft has no extractable description", file=sys.stderr)
+        return
+
+    text = " ".join(para_lines)
+
+    # Optionally strip inline markdown
+    if ctx.config.desc_strip_markdown:
+        text = strip_markdown_inline(text)
+
+    # Truncate to max_length and remove trailing whitespace
+    max_len = ctx.config.desc_max_length
+    if len(text) > max_len:
+        text = text[:max_len].rstrip()
+
+    ctx.description = text
+
+
+# ---------------------------------------------------------------------------
 # Pipeline entry point
 # ---------------------------------------------------------------------------
 
@@ -384,6 +472,7 @@ def run(argv: list[str]) -> int:
         ctx.config = PublishConfig.from_yaml(repo_root / "_data" / "publish.yml")
         load_draft(ctx)
         resolve_title(ctx)
+        extract_description(ctx)
         # Subsequent pipeline steps added in later steps.
         return 0
     except PublishError as e:

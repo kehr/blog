@@ -1,4 +1,4 @@
-"""Tests for publish.py - Step 1: config and error types. Step 2: CLI and context. Step 3: draft loader and title resolver."""
+"""Tests for publish.py - Step 1: config and error types. Step 2: CLI and context. Step 3: draft loader and title resolver. Step 4: description extractor."""
 import sys
 from datetime import datetime
 from io import StringIO
@@ -17,11 +17,13 @@ from publish import (
     PublishContext,
     PublishError,
     TargetPostExistsError,
+    extract_description,
     load_draft,
     parse_args,
     parse_list,
     resolve_title,
     run,
+    strip_markdown_inline,
 )
 
 # Path to the real config used by the blog
@@ -739,3 +741,393 @@ class TestRunPropagatesDraftNotFound:
         assert ret == 1
         captured = capsys.readouterr()
         assert "error" in captured.err.lower() or "nonexistent" in captured.err
+
+
+# ---------------------------------------------------------------------------
+# Step 4 helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_config(
+    *,
+    default_description: str = "",
+    desc_max_length: int = 160,
+    desc_strip_markdown: bool = True,
+) -> PublishConfig:
+    """Build a minimal PublishConfig for description tests."""
+    return PublishConfig(
+        default_categories=[],
+        default_tags=[],
+        default_image_path="/assets/img/default.jpg",
+        default_description=default_description,
+        desc_max_length=desc_max_length,
+        desc_strip_markdown=desc_strip_markdown,
+        images_posts_dir=Path("assets/img/posts"),
+        images_url_prefix="/assets/img/posts",
+        posts_dir=Path("_posts"),
+        slug_pattern="^[a-z0-9][a-z0-9-]*$",
+        fail_on_existing_post=True,
+    )
+
+
+def _make_ctx_with_body(
+    src_dir: Path,
+    body: str,
+    *,
+    cli_description: "str | None" = None,
+    config: "PublishConfig | None" = None,
+    filename: str = "post.md",
+) -> PublishContext:
+    """Build a PublishContext with raw_body and config already set."""
+    ctx = PublishContext(
+        draft_file=src_dir / filename,
+        slug="my-post",
+        src_dir=src_dir,
+        cli_categories=None,
+        cli_tags=None,
+        cli_image=None,
+        cli_description=cli_description,
+        cli_date=None,
+        dry_run=False,
+        force=False,
+        verbose=False,
+    )
+    ctx.raw_body = body
+    ctx.config = config if config is not None else _make_config()
+    return ctx
+
+
+# ---------------------------------------------------------------------------
+# Step 4: strip_markdown_inline
+# ---------------------------------------------------------------------------
+
+
+class TestStripMarkdownInlineLink:
+    def test_link_replaced_with_anchor_text(self):
+        assert strip_markdown_inline("[anchor](https://x)") == "anchor"
+
+    def test_link_in_sentence(self):
+        result = strip_markdown_inline("visit [home](https://example.com) today")
+        assert result == "visit home today"
+
+    def test_multiple_links(self):
+        result = strip_markdown_inline("[a](u1) and [b](u2)")
+        assert result == "a and b"
+
+
+class TestStripMarkdownInlineCode:
+    def test_inline_code_replaced_with_content(self):
+        assert strip_markdown_inline("`code`") == "code"
+
+    def test_inline_code_in_sentence(self):
+        result = strip_markdown_inline("use `print()` here")
+        assert result == "use print() here"
+
+
+class TestStripMarkdownInlineBold:
+    def test_double_asterisk_bold(self):
+        assert strip_markdown_inline("**bold**") == "bold"
+
+    def test_triple_asterisk(self):
+        assert strip_markdown_inline("***triple***") == "triple"
+
+    def test_bold_in_sentence(self):
+        result = strip_markdown_inline("this is **important** text")
+        assert result == "this is important text"
+
+
+class TestStripMarkdownInlineItalic:
+    def test_single_asterisk_italic(self):
+        assert strip_markdown_inline("*italic*") == "italic"
+
+    def test_single_underscore_italic(self):
+        assert strip_markdown_inline("_underscore_") == "underscore"
+
+    def test_double_underscore_bold(self):
+        assert strip_markdown_inline("__bold__") == "bold"
+
+
+class TestStripMarkdownInlineCombined:
+    def test_link_and_bold_and_code(self):
+        src = "[**link**](https://x) and `code` here"
+        # link is stripped first, then bold, then code
+        result = strip_markdown_inline(src)
+        assert "https://x" not in result
+        assert "`" not in result
+        assert "**" not in result
+        assert "link" in result
+        assert "code" in result
+
+    def test_mixed_in_paragraph(self):
+        src = "Read [docs](https://docs.example.com) or `help()` for **more** info."
+        result = strip_markdown_inline(src)
+        assert result == "Read docs or help() for more info."
+
+
+class TestStripMarkdownInlineNoMarks:
+    def test_plain_text_unchanged(self):
+        assert strip_markdown_inline("plain text here") == "plain text here"
+
+    def test_chinese_plain_text(self):
+        assert strip_markdown_inline("这是一段纯文本") == "这是一段纯文本"
+
+    def test_empty_string(self):
+        assert strip_markdown_inline("") == ""
+
+
+# ---------------------------------------------------------------------------
+# Step 4: extract_description
+# ---------------------------------------------------------------------------
+
+
+class TestExtractDescriptionSkipH1:
+    """Verifies H1 line is skipped; first paragraph after blank lines is used."""
+
+    def test_extracts_paragraph_after_h1(self, tmp_path: Path):
+        body = "# 标题\n\n这是首段"
+        ctx = _make_ctx_with_body(tmp_path, body, config=_make_config(desc_strip_markdown=False))
+        extract_description(ctx)
+        assert ctx.description == "这是首段"
+
+    def test_h1_with_extra_blank_lines(self, tmp_path: Path):
+        body = "# Title\n\n\n\nFirst para"
+        ctx = _make_ctx_with_body(tmp_path, body, config=_make_config(desc_strip_markdown=False))
+        extract_description(ctx)
+        assert ctx.description == "First para"
+
+
+class TestExtractDescriptionNoH1:
+    """No H1 -> extracts from first non-empty line directly."""
+
+    def test_extracts_first_paragraph(self, tmp_path: Path):
+        body = "这是首段"
+        ctx = _make_ctx_with_body(tmp_path, body, config=_make_config(desc_strip_markdown=False))
+        extract_description(ctx)
+        assert ctx.description == "这是首段"
+
+    def test_non_h1_heading_treated_as_paragraph(self, tmp_path: Path):
+        body = "## Subheading\n\nrest"
+        ctx = _make_ctx_with_body(tmp_path, body, config=_make_config(desc_strip_markdown=False))
+        extract_description(ctx)
+        # ## line is not H1, so it is treated as first paragraph line
+        assert "Subheading" in ctx.description
+
+
+class TestExtractDescriptionSkipsLeadingBlankLines:
+    """Leading blank lines before any content are skipped."""
+
+    def test_three_blank_lines_then_paragraph(self, tmp_path: Path):
+        body = "\n\n\nFirst paragraph text"
+        ctx = _make_ctx_with_body(tmp_path, body, config=_make_config(desc_strip_markdown=False))
+        extract_description(ctx)
+        assert ctx.description == "First paragraph text"
+
+    def test_blank_lines_before_h1_then_paragraph(self, tmp_path: Path):
+        body = "\n\n# Title\n\nThe body paragraph"
+        ctx = _make_ctx_with_body(tmp_path, body, config=_make_config(desc_strip_markdown=False))
+        extract_description(ctx)
+        assert ctx.description == "The body paragraph"
+
+
+class TestExtractDescriptionMultipleLinesJoined:
+    """Consecutive non-empty lines in paragraph are joined with a space."""
+
+    def test_two_lines_joined(self, tmp_path: Path):
+        body = "# H\n\nLine one\nLine two"
+        ctx = _make_ctx_with_body(tmp_path, body, config=_make_config(desc_strip_markdown=False))
+        extract_description(ctx)
+        assert ctx.description == "Line one Line two"
+
+    def test_three_lines_joined(self, tmp_path: Path):
+        body = "First\nSecond\nThird"
+        ctx = _make_ctx_with_body(tmp_path, body, config=_make_config(desc_strip_markdown=False))
+        extract_description(ctx)
+        assert ctx.description == "First Second Third"
+
+
+class TestExtractDescriptionTruncatesToMaxLength:
+    """Paragraph longer than desc_max_length is truncated and rstripped."""
+
+    def test_truncates_ascii(self, tmp_path: Path):
+        long_text = "a" * 200
+        ctx = _make_ctx_with_body(
+            tmp_path, long_text, config=_make_config(desc_max_length=50, desc_strip_markdown=False)
+        )
+        extract_description(ctx)
+        assert len(ctx.description) <= 50
+
+    def test_rstrip_after_truncation(self, tmp_path: Path):
+        # Truncation boundary may land mid-word; rstrip removes trailing spaces
+        text = "word " * 40  # many words with trailing spaces between them
+        ctx = _make_ctx_with_body(
+            tmp_path, text, config=_make_config(desc_max_length=10, desc_strip_markdown=False)
+        )
+        extract_description(ctx)
+        assert not ctx.description.endswith(" ")
+
+    def test_short_text_not_truncated(self, tmp_path: Path):
+        text = "Short"
+        ctx = _make_ctx_with_body(
+            tmp_path, text, config=_make_config(desc_max_length=160, desc_strip_markdown=False)
+        )
+        extract_description(ctx)
+        assert ctx.description == "Short"
+
+
+class TestExtractDescriptionStripMarkdownWhenEnabled:
+    """When desc_strip_markdown=True, inline markdown is stripped."""
+
+    def test_strips_link_in_description(self, tmp_path: Path):
+        body = "# T\n\n[anchor](https://x) and text"
+        ctx = _make_ctx_with_body(tmp_path, body, config=_make_config(desc_strip_markdown=True))
+        extract_description(ctx)
+        assert "https://x" not in ctx.description
+        assert "[" not in ctx.description
+        assert "anchor" in ctx.description
+
+    def test_strips_bold_in_description(self, tmp_path: Path):
+        body = "**important** text"
+        ctx = _make_ctx_with_body(tmp_path, body, config=_make_config(desc_strip_markdown=True))
+        extract_description(ctx)
+        assert "**" not in ctx.description
+        assert "important" in ctx.description
+
+
+class TestExtractDescriptionKeepsMarkdownWhenDisabled:
+    """When desc_strip_markdown=False, inline markdown is preserved."""
+
+    def test_preserves_link(self, tmp_path: Path):
+        body = "[anchor](https://x)"
+        ctx = _make_ctx_with_body(tmp_path, body, config=_make_config(desc_strip_markdown=False))
+        extract_description(ctx)
+        assert "[anchor](https://x)" in ctx.description
+
+    def test_preserves_bold(self, tmp_path: Path):
+        body = "**bold** text"
+        ctx = _make_ctx_with_body(tmp_path, body, config=_make_config(desc_strip_markdown=False))
+        extract_description(ctx)
+        assert "**bold**" in ctx.description
+
+
+class TestExtractDescriptionEmptyDraftWarns:
+    """Draft with only H1 and blank lines -> empty description + stderr warning."""
+
+    def test_empty_description_when_only_h1(self, tmp_path: Path, capsys):
+        body = "# 标题\n\n"
+        ctx = _make_ctx_with_body(tmp_path, body, config=_make_config())
+        extract_description(ctx)
+        assert ctx.description == ""
+        captured = capsys.readouterr()
+        assert "warning" in captured.err.lower()
+
+    def test_empty_draft_warns(self, tmp_path: Path, capsys):
+        body = ""
+        ctx = _make_ctx_with_body(tmp_path, body, config=_make_config())
+        extract_description(ctx)
+        assert ctx.description == ""
+        captured = capsys.readouterr()
+        assert "warning" in captured.err.lower()
+
+    def test_does_not_raise_on_empty(self, tmp_path: Path):
+        body = "# Only heading\n\n"
+        ctx = _make_ctx_with_body(tmp_path, body, config=_make_config())
+        # must not raise
+        extract_description(ctx)
+
+
+class TestExtractDescriptionCliExplicitValue:
+    """CLI explicit description bypasses extraction."""
+
+    def test_cli_value_used_directly(self, tmp_path: Path):
+        body = "# Title\n\nThe body paragraph that should not be used"
+        ctx = _make_ctx_with_body(tmp_path, body, cli_description="x")
+        extract_description(ctx)
+        assert ctx.description == "x"
+
+    def test_cli_value_not_truncated(self, tmp_path: Path):
+        # Even if longer than max_length, CLI value is used verbatim
+        long_cli = "a" * 300
+        ctx = _make_ctx_with_body(
+            tmp_path, "body", cli_description=long_cli,
+            config=_make_config(desc_max_length=50),
+        )
+        extract_description(ctx)
+        assert ctx.description == long_cli
+
+
+class TestExtractDescriptionCliExplicitEmpty:
+    """CLI --description '' forces empty description (no extraction)."""
+
+    def test_cli_empty_string_forces_empty(self, tmp_path: Path):
+        body = "# Title\n\nThere is content here"
+        ctx = _make_ctx_with_body(tmp_path, body, cli_description="")
+        extract_description(ctx)
+        assert ctx.description == ""
+
+
+class TestExtractDescriptionUsesConfigDefault:
+    """When CLI is None and config.default_description is non-empty, use config default."""
+
+    def test_config_default_used_when_no_cli(self, tmp_path: Path):
+        body = "# Title\n\nBody text"
+        ctx = _make_ctx_with_body(
+            tmp_path, body, cli_description=None,
+            config=_make_config(default_description="d"),
+        )
+        extract_description(ctx)
+        assert ctx.description == "d"
+
+    def test_config_default_not_used_when_cli_is_set(self, tmp_path: Path):
+        body = "# Title\n\nBody text"
+        ctx = _make_ctx_with_body(
+            tmp_path, body, cli_description="override",
+            config=_make_config(default_description="d"),
+        )
+        extract_description(ctx)
+        assert ctx.description == "override"
+
+
+class TestExtractDescriptionChineseTruncation:
+    """Chinese characters are counted by character (not byte) for max_length."""
+
+    def test_chinese_truncated_by_char_count(self, tmp_path: Path):
+        # 20 Chinese chars; limit to 10 -> 10 chars
+        text = "一二三四五六七八九十" * 2  # 20 chars
+        ctx = _make_ctx_with_body(
+            tmp_path, text, config=_make_config(desc_max_length=10, desc_strip_markdown=False)
+        )
+        extract_description(ctx)
+        assert len(ctx.description) == 10
+
+    def test_chinese_not_truncated_when_under_limit(self, tmp_path: Path):
+        text = "一二三四五"  # 5 chars
+        ctx = _make_ctx_with_body(
+            tmp_path, text, config=_make_config(desc_max_length=10, desc_strip_markdown=False)
+        )
+        extract_description(ctx)
+        assert ctx.description == "一二三四五"
+
+
+class TestRunPipelineThroughDescription:
+    """End-to-end: run() processes up to extract_description and sets ctx.description."""
+
+    def test_run_sets_description_from_body(self, tmp_path: Path):
+        # Build a minimal tmp repo layout
+        src_dir = tmp_path / "_drafts"
+        src_dir.mkdir()
+        data_dir = tmp_path / "_data"
+        data_dir.mkdir()
+
+        draft = src_dir / "test-post.md"
+        draft.write_text("# Title\n\nThe first paragraph.", encoding="utf-8")
+        (data_dir / "publish.yml").write_text(
+            "defaults: {}\ndescription:\n  max_length: 160\n  strip_markdown: false\n",
+            encoding="utf-8",
+        )
+
+        # We capture ctx by hooking into run internals via monkeypatch is impractical;
+        # instead verify run() exits 0 (pipeline reaches description step without error)
+        ret = run(
+            ["--file", "test-post", "--slug", "test-post", "--src", str(src_dir)]
+        )
+        assert ret == 0
