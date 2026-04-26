@@ -1,4 +1,4 @@
-"""Tests for publish.py - Step 1: config and error types. Step 2: CLI and context."""
+"""Tests for publish.py - Step 1: config and error types. Step 2: CLI and context. Step 3: draft loader and title resolver."""
 import sys
 from datetime import datetime
 from io import StringIO
@@ -17,8 +17,10 @@ from publish import (
     PublishContext,
     PublishError,
     TargetPostExistsError,
+    load_draft,
     parse_args,
     parse_list,
+    resolve_title,
     run,
 )
 
@@ -503,3 +505,237 @@ class TestRunPropagatesPublishError:
         monkeypatch.setattr("publish.parse_args", fake_parse_args)
         ret = run(["--file", "foo", "--slug", "ok", "--src", str(tmp_path)])
         assert ret == 1
+
+
+# ---------------------------------------------------------------------------
+# Step 3: load_draft
+# ---------------------------------------------------------------------------
+
+
+def _make_ctx(src_dir: Path, filename: str = "post.md") -> PublishContext:
+    """Build a minimal PublishContext pointing at src_dir/filename."""
+    return PublishContext(
+        draft_file=src_dir / filename,
+        slug="my-post",
+        src_dir=src_dir,
+        cli_categories=None,
+        cli_tags=None,
+        cli_image=None,
+        cli_description=None,
+        cli_date=None,
+        dry_run=False,
+        force=False,
+        verbose=False,
+    )
+
+
+class TestLoadDraftMissingFile:
+    """load_draft raises DraftNotFoundError when draft file does not exist."""
+
+    def test_load_draft_missing_file_raises(self, tmp_path: Path):
+        src_dir = tmp_path / "_drafts"
+        src_dir.mkdir()
+        ctx = _make_ctx(src_dir, "missing.md")
+        with pytest.raises(DraftNotFoundError):
+            load_draft(ctx)
+
+    def test_load_draft_missing_file_error_message_contains_path(self, tmp_path: Path):
+        src_dir = tmp_path / "_drafts"
+        src_dir.mkdir()
+        ctx = _make_ctx(src_dir, "missing.md")
+        with pytest.raises(DraftNotFoundError) as exc_info:
+            load_draft(ctx)
+        assert "missing.md" in str(exc_info.value)
+
+    def test_load_draft_missing_file_lists_real_drafts(self, tmp_path: Path):
+        src_dir = tmp_path / "_drafts"
+        src_dir.mkdir()
+        (src_dir / "a.md").write_text("content a", encoding="utf-8")
+        (src_dir / "b.md").write_text("content b", encoding="utf-8")
+        ctx = _make_ctx(src_dir, "missing.md")
+        with pytest.raises(DraftNotFoundError) as exc_info:
+            load_draft(ctx)
+        msg = str(exc_info.value)
+        assert "a.md" in msg
+        assert "b.md" in msg
+
+    def test_load_draft_empty_drafts_dir(self, tmp_path: Path):
+        src_dir = tmp_path / "_drafts"
+        src_dir.mkdir()
+        (src_dir / ".gitkeep").write_text("", encoding="utf-8")
+        ctx = _make_ctx(src_dir, "missing.md")
+        with pytest.raises(DraftNotFoundError) as exc_info:
+            load_draft(ctx)
+        msg = str(exc_info.value)
+        assert "empty" in msg.lower()
+
+
+class TestLoadDraftFrontMatterRejection:
+    """load_draft raises DraftHasFrontMatterError when draft starts with --- (front matter)."""
+
+    def test_load_draft_rejects_front_matter_first_line(self, tmp_path: Path):
+        src_dir = tmp_path / "_drafts"
+        src_dir.mkdir()
+        draft = src_dir / "post.md"
+        draft.write_text("---\ntitle: Hello\n---\n\nBody text.", encoding="utf-8")
+        ctx = _make_ctx(src_dir)
+        with pytest.raises(DraftHasFrontMatterError):
+            load_draft(ctx)
+
+    def test_load_draft_rejects_front_matter_after_blank_lines(self, tmp_path: Path):
+        src_dir = tmp_path / "_drafts"
+        src_dir.mkdir()
+        draft = src_dir / "post.md"
+        draft.write_text("\n\n\n---\ntitle: Hello\n---\n\nBody text.", encoding="utf-8")
+        ctx = _make_ctx(src_dir)
+        with pytest.raises(DraftHasFrontMatterError):
+            load_draft(ctx)
+
+    def test_load_draft_rejects_front_matter_with_bom(self, tmp_path: Path):
+        src_dir = tmp_path / "_drafts"
+        src_dir.mkdir()
+        draft = src_dir / "post.md"
+        # Write UTF-8 BOM followed by front matter
+        draft.write_bytes(b"\xef\xbb\xbf---\ntitle: Hello\n---\n\nBody text.")
+        ctx = _make_ctx(src_dir)
+        with pytest.raises(DraftHasFrontMatterError):
+            load_draft(ctx)
+
+    def test_load_draft_accepts_horizontal_rule_in_body(self, tmp_path: Path):
+        src_dir = tmp_path / "_drafts"
+        src_dir.mkdir()
+        draft = src_dir / "post.md"
+        draft.write_text(
+            "# Title\n\nSome text.\n\n---\n\nMore text after HR.",
+            encoding="utf-8",
+        )
+        ctx = _make_ctx(src_dir)
+        load_draft(ctx)  # must not raise
+        assert "---" in ctx.raw_body
+
+    def test_load_draft_error_message_mentions_front_matter(self, tmp_path: Path):
+        src_dir = tmp_path / "_drafts"
+        src_dir.mkdir()
+        draft = src_dir / "post.md"
+        draft.write_text("---\ntitle: Hello\n---\n\nBody.", encoding="utf-8")
+        ctx = _make_ctx(src_dir)
+        with pytest.raises(DraftHasFrontMatterError) as exc_info:
+            load_draft(ctx)
+        msg = str(exc_info.value)
+        assert "front matter" in msg.lower()
+
+
+class TestLoadDraftReadsBody:
+    """load_draft reads the file content into ctx.raw_body."""
+
+    def test_load_draft_reads_chinese_body(self, tmp_path: Path):
+        src_dir = tmp_path / "_drafts"
+        src_dir.mkdir()
+        chinese_content = "# 如何设计\n\n这是正文内容，包含中文字符。"
+        draft = src_dir / "如何设计.md"
+        draft.write_text(chinese_content, encoding="utf-8")
+        ctx = _make_ctx(src_dir, "如何设计.md")
+        load_draft(ctx)
+        assert ctx.raw_body == chinese_content
+
+    def test_load_draft_reads_ascii_body(self, tmp_path: Path):
+        src_dir = tmp_path / "_drafts"
+        src_dir.mkdir()
+        content = "# Hello\n\nThis is the body."
+        (src_dir / "post.md").write_text(content, encoding="utf-8")
+        ctx = _make_ctx(src_dir)
+        load_draft(ctx)
+        assert ctx.raw_body == content
+
+
+# ---------------------------------------------------------------------------
+# Step 3: resolve_title
+# ---------------------------------------------------------------------------
+
+
+class TestResolveTitle:
+    """resolve_title sets ctx.title to the stem of draft_file."""
+
+    def test_resolve_title_basic(self, tmp_path: Path):
+        src_dir = tmp_path / "_drafts"
+        src_dir.mkdir()
+        ctx = _make_ctx(src_dir, "foo.md")
+        resolve_title(ctx)
+        assert ctx.title == "foo"
+
+    def test_resolve_title_chinese_filename(self, tmp_path: Path):
+        src_dir = tmp_path / "_drafts"
+        src_dir.mkdir()
+        ctx = _make_ctx(src_dir, "如何设计.md")
+        resolve_title(ctx)
+        assert ctx.title == "如何设计"
+
+    def test_resolve_title_with_spaces(self, tmp_path: Path):
+        src_dir = tmp_path / "_drafts"
+        src_dir.mkdir()
+        ctx = _make_ctx(src_dir, "Hello World.md")
+        resolve_title(ctx)
+        assert ctx.title == "Hello World"
+
+    def test_resolve_title_strips_md_only(self, tmp_path: Path):
+        src_dir = tmp_path / "_drafts"
+        src_dir.mkdir()
+        ctx = _make_ctx(src_dir, "foo.bar.md")
+        resolve_title(ctx)
+        assert ctx.title == "foo.bar"
+
+    def test_resolve_title_full_chinese_filename(self, tmp_path: Path):
+        src_dir = tmp_path / "_drafts"
+        src_dir.mkdir()
+        ctx = _make_ctx(src_dir, "如何设计一个好的Skill.md")
+        resolve_title(ctx)
+        assert ctx.title == "如何设计一个好的Skill"
+
+
+# ---------------------------------------------------------------------------
+# Step 3: run() integration with load_draft
+# ---------------------------------------------------------------------------
+
+
+class TestRunPropagatesDraftNotFound:
+    """run() returns non-zero exit code when draft file is not found."""
+
+    def test_run_propagates_draft_not_found(self, tmp_path: Path, capsys, monkeypatch):
+        src_dir = tmp_path / "_drafts"
+        src_dir.mkdir()
+        # Set up a valid publish.yml so config loading succeeds
+        data_dir = tmp_path / "_data"
+        data_dir.mkdir()
+        (data_dir / "publish.yml").write_text("defaults: {}\n", encoding="utf-8")
+
+        from publish import PublishContext
+
+        def fake_parse_args(argv):
+            return PublishContext(
+                draft_file=src_dir / "nonexistent.md",
+                slug="my-post",
+                src_dir=src_dir,
+                cli_categories=None,
+                cli_tags=None,
+                cli_image=None,
+                cli_description=None,
+                cli_date=None,
+                dry_run=False,
+                force=False,
+                verbose=False,
+            )
+
+        monkeypatch.setattr("publish.parse_args", fake_parse_args)
+
+        # Also patch config loading to use our tmp publish.yml
+        original_from_yaml = PublishConfig.from_yaml
+
+        def fake_from_yaml(path):
+            return original_from_yaml(data_dir / "publish.yml")
+
+        monkeypatch.setattr("publish.PublishConfig.from_yaml", fake_from_yaml)
+
+        ret = run(["--file", "nonexistent", "--slug", "my-post", "--src", str(src_dir)])
+        assert ret == 1
+        captured = capsys.readouterr()
+        assert "error" in captured.err.lower() or "nonexistent" in captured.err
