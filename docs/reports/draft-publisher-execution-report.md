@@ -64,6 +64,20 @@
 - 修复后验证：`test_mixed_bold_italic_no_double_asterisk_residue`、`test_triple_asterisk_only`、`test_double_asterisk_only`、`test_single_asterisk_only` 全部通过；原有 bold/italic 组合测试无回归
 - commit: 4ef08e8
 
+### BUG-4: str.replace 在 alt == path 时误命中 alt 文字
+
+- 原现象：`![/abs/foo.png](/abs/foo.png)` 中 `original.replace(raw_path, new_url, 1)` 替换第一次出现，而第一次是 alt 文字（`[` 与 `(` 之间），导致 alt 被改、src 未改、图片失效
+- 修复方案：提取 `_rewrite_via_span` helper，用 `m.span("path")` 获取捕获组的字符区间，基于字符串切片仅替换 path 组覆盖的区间，完全不依赖 `str.replace`
+- 修复后验证：`TestRewriteMdAltEqualsPath::test_src_rewritten_not_alt` 通过；`TestRewriteHtmlAltEqualsPath::test_src_rewritten_alt_unchanged` 通过；全部 192 个测试通过
+- commit: 913ad04
+
+### BUG-5: images_posts_dir 配置为绝对路径时静默丢失 repo_root
+
+- 原现象：`repo_root / config.images_posts_dir / ctx.slug / basename` 在 `images_posts_dir` 为绝对路径时，Python pathlib `__truediv__` 丢弃左侧前缀，文件写入错误位置且无报错
+- 修复方案：在 `PublishConfig.from_yaml` 中，解析 `images_posts_dir` 后立即检查 `Path.is_absolute()`，若为绝对路径抛 `ConfigParseError`，message 含 "must be relative"，suggestion 引导用户改用相对路径
+- 修复后验证：`TestConfigRejectsAbsoluteImagesPostsDir::test_absolute_posts_dir_raises` 通过；已有配置文件（`assets/img/posts` 相对路径）不受影响
+- commit: 913ad04
+
 ## 5. 已记录但未修复的观察项
 
 | # | 来源 | 观察 | 后续处理时机 |
