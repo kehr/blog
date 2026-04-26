@@ -1,0 +1,5 @@
+{
+  "// rationale": "The project's only .scss file is assets/css/jekyll-theme-chirpy.scss, which is Liquid-templated (Jekyll renders Liquid -> SCSS at build time). VSCode's built-in SCSS validator does not understand Liquid tags inside @use string literals and reports false positives. Build is verified clean via `bundle exec jekyll build` so the IDE validator adds noise, not safety. Disabled here.",
+  "scss.validate": false,
+  "css.validate": false
+}

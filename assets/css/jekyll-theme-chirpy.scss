@@ -1,12 +1,12 @@
 ---
 ---
 
+/* Jekyll picks `main.bundle` (minified) in production and `main` in dev.
+   Kept on a single line with double-quoted string so SCSS language servers
+   parse it as a normal `@use "...";` instead of choking on the embedded
+   Liquid + the (single-quoted) `'production'` literal. */
 /* prettier-ignore */
-@use 'main
-{%- if jekyll.environment == 'production' -%}
-  .bundle
-{%- endif -%}
-';
+@use "main{%- if jekyll.environment == 'production' -%}.bundle{%- endif -%}";
 
 /* ------------------------------------------------------------------
    Custom typography overrides for Chinese-first publishing.
