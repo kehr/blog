@@ -117,6 +117,13 @@ class PublishConfig:
         # Nested image key inside defaults: { image: { path: "..." } }
         image_block = defaults.get("image") or {}
 
+        images_posts_dir = Path(images_cfg.get("posts_dir", "assets/img/posts"))
+        if images_posts_dir.is_absolute():
+            raise ConfigParseError(
+                f"images.posts_dir must be relative to repo root, got absolute path: {images_posts_dir}",
+                suggestion="use a relative path such as 'assets/img/posts'",
+            )
+
         return cls(
             default_categories=list(defaults.get("categories") or []),
             default_tags=list(defaults.get("tags") or []),
@@ -124,7 +131,7 @@ class PublishConfig:
             default_description=defaults.get("description", ""),
             desc_max_length=int(description_cfg.get("max_length", 160)),
             desc_strip_markdown=bool(description_cfg.get("strip_markdown", True)),
-            images_posts_dir=Path(images_cfg.get("posts_dir", "assets/img/posts")),
+            images_posts_dir=images_posts_dir,
             images_url_prefix=str(images_cfg.get("url_prefix", "/assets/img/posts")),
             posts_dir=Path(raw.get("posts_dir", "_posts")),
             slug_pattern=str(
@@ -607,6 +614,13 @@ def process_images(ctx: "PublishContext") -> None:
     }
 
     # Second pass: rewrite body text
+    def _rewrite_via_span(m: re.Match, new_url: str) -> str:
+        """Replace only the captured 'path' group within the full match string."""
+        base = m.start()
+        start, end = m.span("path")
+        original = m.group(0)
+        return original[: start - base] + new_url + original[end - base :]
+
     def _rewrite_md(m: re.Match) -> str:
         raw_path = m.group("path")
         if classify_path(raw_path) != "absolute":
@@ -615,10 +629,7 @@ def process_images(ctx: "PublishContext") -> None:
         new_url = source_to_url.get(source)
         if new_url is None:
             return m.group(0)
-        # Reconstruct markdown image, keeping alt and optional title
-        original = m.group(0)
-        # Replace only the path portion
-        return original.replace(raw_path, new_url, 1)
+        return _rewrite_via_span(m, new_url)
 
     def _rewrite_html(m: re.Match) -> str:
         raw_path = m.group("path")
@@ -628,9 +639,7 @@ def process_images(ctx: "PublishContext") -> None:
         new_url = source_to_url.get(source)
         if new_url is None:
             return m.group(0)
-        # Replace only the path portion inside the src attribute value
-        original = m.group(0)
-        return original.replace(raw_path, new_url, 1)
+        return _rewrite_via_span(m, new_url)
 
     body = ctx.raw_body
     body = MD_IMG.sub(_rewrite_md, body)

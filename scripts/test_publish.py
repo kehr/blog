@@ -1768,3 +1768,91 @@ class TestRunPipelineThroughImages:
             ["--file", "my-draft", "--slug", "my-post", "--src", str(repo / "_drafts")]
         )
         assert ret != 0
+
+
+# ---------------------------------------------------------------------------
+# Step 5 bug regression: alt-equals-path false-hit in _rewrite_md/_rewrite_html
+# ---------------------------------------------------------------------------
+
+
+class TestRewriteMdAltEqualsPath:
+    """BUG-4: when alt == path (Obsidian default), str.replace must not corrupt alt text."""
+
+    def test_src_rewritten_not_alt(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        img_dir = tmp_path / "ext_images"
+        img_dir.mkdir()
+        img = img_dir / "foo.png"
+        img.write_bytes(b"image data")
+
+        # alt == absolute path (Obsidian/Typora default behavior)
+        body = f"![{img}]({img})"
+        ctx = _make_image_ctx(repo, body, slug="my-post")
+        process_images(ctx)
+
+        # src must be rewritten to the new URL
+        assert "](/assets/img/posts/my-post/foo.png)" in ctx.rewritten_body
+        # alt must remain the original absolute path (unchanged)
+        assert f"![{img}]" in ctx.rewritten_body
+
+
+class TestRewriteHtmlAltEqualsPath:
+    """BUG-4: when HTML alt == src, only the src attribute value must be rewritten."""
+
+    def test_src_rewritten_alt_unchanged(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        img_dir = tmp_path / "ext_images"
+        img_dir.mkdir()
+        img = img_dir / "foo.png"
+        img.write_bytes(b"image data")
+
+        body = f'<img src="{img}" alt="{img}">'
+        ctx = _make_image_ctx(repo, body, slug="my-post")
+        process_images(ctx)
+
+        # src attribute must contain the new URL
+        assert 'src="/assets/img/posts/my-post/foo.png"' in ctx.rewritten_body
+        # alt must remain the original absolute path
+        assert f'alt="{img}"' in ctx.rewritten_body
+
+
+# ---------------------------------------------------------------------------
+# Step 5 bug regression: absolute images_posts_dir rejected at config parse time
+# ---------------------------------------------------------------------------
+
+
+class TestConfigRejectsAbsoluteImagesPostsDir:
+    """BUG-5: images.posts_dir with absolute path must raise ConfigParseError immediately."""
+
+    def test_absolute_posts_dir_raises(self, tmp_path: Path):
+        cfg_file = tmp_path / "publish.yml"
+        cfg_file.write_text(
+            "images:\n  posts_dir: /etc/var\n  url_prefix: /a\n",
+            encoding="utf-8",
+        )
+        with pytest.raises(ConfigParseError) as exc_info:
+            PublishConfig.from_yaml(cfg_file)
+        assert "must be relative" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# Step 5 supplemental: single-quote src in HTML img
+# ---------------------------------------------------------------------------
+
+
+class TestHtmlImgSingleQuoteSrc:
+    """Supplemental: <img src='path'> with single quotes is correctly handled."""
+
+    def test_single_quote_src_rewritten(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        img_dir = tmp_path / "ext_images"
+        img_dir.mkdir()
+        img = img_dir / "foo.png"
+        img.write_bytes(b"image data")
+
+        body = f"<img src='{img}' width='200'>"
+        ctx = _make_image_ctx(repo, body, slug="my-post")
+        process_images(ctx)
+
+        assert "/assets/img/posts/my-post/foo.png" in ctx.rewritten_body
+        assert str(img) not in ctx.rewritten_body
