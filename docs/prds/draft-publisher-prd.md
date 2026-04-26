@@ -96,6 +96,7 @@ make publish file="<draft-name>" slug="<english-slug>" \
 | `categories` | 否 | 配置默认 | 逗号分隔列表 |
 | `tags` | 否 | 配置默认 | 逗号分隔列表 |
 | `image` | 否 | 配置默认 | 封面图站内 URL |
+| `description` | 否 | 配置默认或首段自动提取 | 文章摘要，最长 160 字符 |
 | `date` | 否 | 当前本地时间 | 格式 `YYYY-MM-DD HH:MM` 或带秒 |
 | `src` | 否 | `_drafts` | 草稿目录 |
 | `dry-run` | 否 | 0 | 1 表示仅打印计划 |

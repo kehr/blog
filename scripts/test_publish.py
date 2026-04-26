@@ -1741,6 +1741,53 @@ class TestProcessImagesMdChineseAlt:
 
 
 # ---------------------------------------------------------------------------
+# Step 5: process_images -- path with spaces (Typora-style absolute paths)
+# ---------------------------------------------------------------------------
+
+
+class TestProcessImagesMdPathWithSpaces:
+    """Paths containing spaces (e.g. Typora Application Support cache) must be matched."""
+
+    def test_absolute_path_with_spaces_matched(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        # Create a directory whose name contains a space
+        img_dir = tmp_path / "Application Support" / "typora-user-images"
+        img_dir.mkdir(parents=True)
+        img = img_dir / "img.png"
+        img.write_bytes(b"typora image")
+
+        body = f"![img]({img})"
+        ctx = _make_image_ctx(repo, body, slug="my-post")
+        process_images(ctx)
+        assert len(ctx.image_plan) == 1
+
+    def test_rewritten_body_replaces_spaced_path(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        img_dir = tmp_path / "Application Support" / "typora-user-images"
+        img_dir.mkdir(parents=True)
+        img = img_dir / "img.png"
+        img.write_bytes(b"typora image")
+
+        body = f"![img]({img})"
+        ctx = _make_image_ctx(repo, body, slug="my-post")
+        process_images(ctx)
+        assert "/assets/img/posts/my-post/img.png" in ctx.rewritten_body
+
+    def test_path_with_spaces_and_title(self, tmp_path: Path):
+        repo = _make_image_repo(tmp_path)
+        img_dir = tmp_path / "Application Support"
+        img_dir.mkdir(parents=True)
+        img = img_dir / "titled.png"
+        img.write_bytes(b"titled image")
+
+        body = f'![alt]({img} "My Title")'
+        ctx = _make_image_ctx(repo, body, slug="my-post")
+        process_images(ctx)
+        assert len(ctx.image_plan) == 1
+        assert '"My Title"' in ctx.rewritten_body
+
+
+# ---------------------------------------------------------------------------
 # Step 5: process_images -- end-to-end via run()
 # ---------------------------------------------------------------------------
 

@@ -1,19 +1,23 @@
 BUNDLE ?= bundle
+PYTHON ?= python3
 HOST   ?= 127.0.0.1
 PORT   ?= 4000
 
-.PHONY: help install serve serve-drafts build prod check new publish clean
+.PHONY: help install serve serve-drafts build prod check new publish publish-list publish-check test-publish clean
 
 help:
-	@echo "make install        Install gems"
-	@echo "make serve          Dev server with livereload (http://$(HOST):$(PORT))"
-	@echo "make serve-drafts   Dev server including _drafts/"
-	@echo "make build          Build site to _site/"
-	@echo "make prod           Build site with JEKYLL_ENV=production"
-	@echo "make check          Production build + htmlproofer (internal links)"
-	@echo "make new title=...  Create a new draft in _drafts/ (optional: slug=...)"
-	@echo "make publish slug=x Move _drafts/<slug>.md to _posts/YYYY-MM-DD-<slug>.md"
-	@echo "make clean          Remove _site/ and .jekyll-cache/"
+	@echo "make install            Install gems"
+	@echo "make serve              Dev server with livereload (http://$(HOST):$(PORT))"
+	@echo "make serve-drafts       Dev server including _drafts/"
+	@echo "make build              Build site to _site/"
+	@echo "make prod               Build site with JEKYLL_ENV=production"
+	@echo "make check              Production build + htmlproofer (internal links)"
+	@echo "make new title=...      Create a new draft in _drafts/ (optional: slug=...)"
+	@echo "make publish file=... slug=...  Publish draft to _posts/ with full pipeline"
+	@echo "make publish-list       List all drafts in _drafts/"
+	@echo "make publish-check file=... slug=...  Dry-run publish (no disk writes)"
+	@echo "make test-publish       Run publish pipeline test suite"
+	@echo "make clean              Remove _site/ and .jekyll-cache/"
 
 install:
 	$(BUNDLE) install
@@ -43,10 +47,37 @@ new:
 	@scripts/new-post.sh "$(title)" $(slug)
 
 publish:
-	@if [ -z "$(slug)" ]; then \
-	  echo "usage: make publish slug=my-slug"; exit 1; \
+	@if [ -z "$(file)" ] || [ -z "$(slug)" ]; then \
+	  echo 'usage: make publish file="..." slug="..." [categories=...] [tags=...] [image=...] [description=...] [date=...] [src=...] [dry-run=1] [force=1]'; exit 1; \
 	fi
-	@scripts/publish-post.sh "$(slug)"
+	@$(PYTHON) scripts/publish.py \
+	  --file "$(file)" --slug "$(slug)" \
+	  $(if $(categories),--categories "$(categories)") \
+	  $(if $(tags),--tags "$(tags)") \
+	  $(if $(image),--image "$(image)") \
+	  $(if $(description),--description "$(description)") \
+	  $(if $(date),--date "$(date)") \
+	  $(if $(src),--src "$(src)") \
+	  $(if $(dry-run),--dry-run) \
+	  $(if $(force),--force)
+
+publish-list:
+	@$(PYTHON) scripts/publish.py --list
+
+publish-check:
+	@if [ -z "$(file)" ] || [ -z "$(slug)" ]; then \
+	  echo 'usage: make publish-check file="..." slug="..."'; exit 1; \
+	fi
+	@$(PYTHON) scripts/publish.py \
+	  --file "$(file)" --slug "$(slug)" --dry-run \
+	  $(if $(categories),--categories "$(categories)") \
+	  $(if $(tags),--tags "$(tags)") \
+	  $(if $(image),--image "$(image)") \
+	  $(if $(description),--description "$(description)") \
+	  $(if $(src),--src "$(src)")
+
+test-publish:
+	@$(PYTHON) -m pytest scripts/test_publish.py -v
 
 clean:
 	rm -rf _site .jekyll-cache

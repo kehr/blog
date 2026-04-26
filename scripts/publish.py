@@ -576,9 +576,9 @@ def _yaml_quote(value: object) -> str:
 # ---------------------------------------------------------------------------
 
 # Matches markdown image syntax: ![alt](path) or ![alt](path "title")
-# path uses [^)\s]+ to exclude whitespace and closing paren (no nested parens supported)
+# path uses [^)"]+? (non-greedy) to support paths with spaces; excludes ) and "
 MD_IMG = re.compile(
-    r"!\[(?P<alt>[^\]]*)\]\((?P<path>[^)\s]+)(?:\s+\"[^\"]*\")?\)"
+    r"!\[(?P<alt>[^\]]*)\]\((?P<path>[^)\"]+?)(?:\s+\"[^\"]*\")?\)"
 )
 
 # Matches HTML <img src="path"> with optional other attributes; case-insensitive
