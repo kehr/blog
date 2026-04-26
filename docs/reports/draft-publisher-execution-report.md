@@ -43,7 +43,26 @@
 
 ## 4. 已修复问题
 
-（首次执行，暂无）
+### BUG-1: 下划线正则破坏 snake_case 标识符
+
+- 原现象：`re.sub(r"_{1,2}([^_]+)_{1,2}", ...)` 无边界断言，导致 `snake_case_name` -> `snakecasename`
+- 修复方案：添加 `(?<!\w)` / `(?!\w)` 边界断言，只在下划线前后均为非单词字符时触发
+- 修复后验证：`test_preserves_snake_case`、`test_preserves_path_underscores` 两个回归测试通过；原有 `_emphasis_` / `__strong__` 用例不受影响
+- commit: 4ef08e8
+
+### BUG-2: 链接正则在 URL 含括号时留下残余 `)`
+
+- 原现象：`re.sub(r"\[([^\]]+)\]\([^)]+\)", ...)` 在遇到 `[anchor](https://x/wiki/Foo_(bar))` 时，`[^)]+` 止步于内层 `)`，导致结果为 `anchor)` 而非 `anchor`
+- 修复方案：将 URL 部分改为 `[^()]*(?:\([^()]*\)[^()]*)*`，允许 URL 中含一层嵌套括号
+- 修复后验证：`test_link_with_parens_in_url` 和 `test_simple_link_still_works` 两个回归测试通过
+- commit: 4ef08e8
+
+### BUG-3: 混合 bold/italic 留下残余星号
+
+- 原现象：`re.sub(r"\*{1,3}([^*]+)\*{1,3}", ...)` 以不确定长度匹配开闭符，`**a*b**` 中 `[^*]+` 无法跨越 `*`，最终产生 `ab**` 残余
+- 修复方案：拆为三条独立正则按长度倒序（三星 -> 双星 -> 单星）；双星正则使用 `(.+?)` 允许内容含单个 `*`，并配合 `(?!\*)` / `(?<!\*)` 防止误吃三星边界
+- 修复后验证：`test_mixed_bold_italic_no_double_asterisk_residue`、`test_triple_asterisk_only`、`test_double_asterisk_only`、`test_single_asterisk_only` 全部通过；原有 bold/italic 组合测试无回归
+- commit: 4ef08e8
 
 ## 5. 已记录但未修复的观察项
 
