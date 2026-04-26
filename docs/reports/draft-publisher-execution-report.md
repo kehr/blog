@@ -31,8 +31,8 @@
 
 | Step | 状态 | Commit | 关键决策与偏差 | 跳到 |
 |------|------|--------|---------------|------|
-| Step 0: docs/draft 落地 | pending | - | - | - |
-| Step 1: 配置与错误类型 | pending | - | - | - |
+| Step 0: docs/draft 落地 | completed | 20b0902 | PRD/TRD/Plan/执行报告/草稿夹具一并入栈 | - |
+| Step 1: 配置与错误类型 | completed | TBD_SHA | TDD 节奏；30 个测试全绿；PyYAML API 对照 dir(yaml) 确认 | - |
 | Step 2: PublishContext 与 CLI | pending | - | - | - |
 | Step 3: 草稿读取与 title | pending | - | - | - |
 | Step 4: Description 提取 | pending | - | - | - |

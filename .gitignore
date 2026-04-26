@@ -39,3 +39,7 @@ assets/js/dist
 
 # Claude
 .claude
+
+# Python
+__pycache__/
+.pytest_cache/

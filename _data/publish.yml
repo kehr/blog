@@ -1,0 +1,22 @@
+defaults:
+  categories:
+    - Notes
+  tags:
+    - notes
+  image:
+    path: /assets/img/default.jpg
+  description: ""
+
+description:
+  max_length: 160
+  strip_markdown: true
+
+images:
+  posts_dir: assets/img/posts
+  url_prefix: /assets/img/posts
+
+posts_dir: _posts
+
+validation:
+  slug_pattern: "^[a-z0-9][a-z0-9-]*$"
+  fail_on_existing_post: true
